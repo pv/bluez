@@ -124,30 +124,33 @@ unsigned char util_get_dt(const char *parent, const char *name)
 
 /* Helpers for bitfield operations */
 
-/* Find unique id in range from 1 to max but no bigger then
- * sizeof(int) * 8. ffs() is used since it is POSIX standard
- */
-uint8_t util_get_uid(unsigned int *bitmap, uint8_t max)
+/* Find unique id in range from 1 to max but no bigger than 64. */
+uint8_t util_get_uid(uint64_t *bitmap, uint8_t max)
 {
 	uint8_t id;
 
-	id = ffs(~*bitmap);
+	if (max > 64)
+		max = 64;
 
-	if (!id || id > max)
-		return 0;
+	for (id = 1; id <= max; ++id) {
+		uint64_t mask = ((uint64_t)1) << (id - 1);
 
-	*bitmap |= 1u << (id - 1);
+		if (!(*bitmap & mask)) {
+			*bitmap |= mask;
+			return id;
+		}
+	}
 
-	return id;
+	return 0;
 }
 
 /* Clear id bit in bitmap */
-void util_clear_uid(unsigned int *bitmap, uint8_t id)
+void util_clear_uid(uint64_t *bitmap, uint8_t id)
 {
-	if (!id)
+	if (id == 0 || id > 64)
 		return;
 
-	*bitmap &= ~(1u << (id - 1));
+	*bitmap &= ~(((uint64_t)1) << (id - 1));
 }
 
 static const struct {
