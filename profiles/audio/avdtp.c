@@ -44,7 +44,6 @@
 #define AVDTP_PSM 25
 
 #define MAX_SEID 0x3E
-static uint64_t seids;
 
 #ifndef MAX
 # define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -325,6 +324,7 @@ struct avdtp_local_sep {
 	GSList *caps;
 	struct avdtp_sep_ind *ind;
 	struct avdtp_sep_cfm *cfm;
+	struct btd_adapter *adapter;
 	void *user_data;
 };
 
@@ -413,6 +413,8 @@ struct avdtp {
 };
 
 static GSList *state_callbacks = NULL;
+
+static GHashTable *adapter_seids = NULL;
 
 static int send_request(struct avdtp *session, gboolean priority,
 			struct avdtp_stream *stream, uint8_t signal_id,
@@ -3768,7 +3770,41 @@ int avdtp_delay_report(struct avdtp *session, struct avdtp_stream *stream,
 							&req, sizeof(req));
 }
 
-struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps, uint8_t type,
+static uint8_t get_adapter_seid(struct btd_adapter *adapter)
+{
+	uint64_t *seids;
+
+	if (adapter_seids == NULL)
+		adapter_seids = g_hash_table_new_full(g_direct_hash,
+						g_direct_equal, NULL, g_free);
+
+	seids = g_hash_table_lookup(adapter_seids, adapter);
+
+	if (seids == NULL) {
+		seids = g_new0(uint64_t, 1);
+		g_hash_table_insert(adapter_seids, adapter, seids);
+	}
+
+	return util_get_uid(seids, MAX_SEID);
+}
+
+static void clear_adapter_seid(struct btd_adapter *adapter, uint8_t seid)
+{
+	uint64_t *seids = adapter_seids ?
+			g_hash_table_lookup(adapter_seids, adapter) : NULL;
+
+	if (seids == NULL)
+		return;
+
+	util_clear_uid(seids, seid);
+
+	if (*seids == 0)
+		g_hash_table_remove(adapter_seids, adapter);
+}
+
+struct avdtp_local_sep *avdtp_register_sep(struct btd_adapter *adapter,
+						struct queue *lseps,
+						uint8_t type,
 						uint8_t media_type,
 						uint8_t codec_type,
 						gboolean delay_reporting,
@@ -3777,7 +3813,7 @@ struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps, uint8_t type,
 						void *user_data)
 {
 	struct avdtp_local_sep *sep;
-	uint8_t seid = util_get_uid(&seids, MAX_SEID);
+	uint8_t seid = get_adapter_seid(adapter);
 
 	if (!seid)
 		return NULL;
@@ -3791,11 +3827,13 @@ struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps, uint8_t type,
 	sep->codec = codec_type;
 	sep->ind = ind;
 	sep->cfm = cfm;
+	sep->adapter = adapter;
 	sep->user_data = user_data;
 	sep->delay_reporting = delay_reporting;
 
-	DBG("SEP %p registered: type:%d codec:%d seid:%d", sep,
-			sep->info.type, sep->codec, sep->info.seid);
+	DBG("SEP %p registered: type:%d codec:%d adapter:%p seid:%d", sep,
+			sep->info.type, sep->codec, sep->adapter,
+			sep->info.seid);
 
 	if (!queue_push_tail(lseps, sep)) {
 		g_free(sep);
@@ -3813,10 +3851,11 @@ int avdtp_unregister_sep(struct queue *lseps, struct avdtp_local_sep *sep)
 	if (sep->stream)
 		release_stream(sep->stream, sep->stream->session);
 
-	DBG("SEP %p unregistered: type:%d codec:%d seid:%d", sep,
-			sep->info.type, sep->codec, sep->info.seid);
+	DBG("SEP %p unregistered: type:%d codec:%d adapter:%p seid:%d", sep,
+			sep->info.type, sep->codec, sep->adapter,
+			sep->info.seid);
 
-	util_clear_uid(&seids, sep->info.seid);
+	clear_adapter_seid(sep->adapter, sep->info.seid);
 	queue_remove(lseps, sep);
 	g_free(sep);
 
