@@ -1759,6 +1759,7 @@ static uint8_t avrcp_handle_set_absolute_volume(struct avrcp *session,
 	volume = pdu->params[0] & 0x7F;
 
 	media_transport_update_device_volume(session->dev, volume);
+	DBG("set last_device_volume=%d in avrcp_handle_set_absolute_volume", (int)volume);
 
 	return AVC_CTYPE_ACCEPTED;
 
@@ -3731,9 +3732,12 @@ static void avrcp_volume_changed(struct avrcp *session,
 
 	/* Always attempt to update the transport volume */
 	media_transport_update_device_volume(session->dev, volume);
+	DBG("set last_device_volume=%d in avrcp_volume_changed", (int)volume);
 
-	if (player)
+	if (player) {
+		DBG("set player volume=%d in avrcp_volume_changed", (int)volume);
 		player->cb->set_volume(volume, session->dev, player->user_data);
+	}
 }
 
 static void avrcp_status_changed(struct avrcp *session,
@@ -4145,6 +4149,7 @@ static void target_init(struct avrcp *session)
 
 		init_volume = media_player_get_device_volume(session->dev);
 		media_transport_update_device_volume(session->dev, init_volume);
+		DBG("set last_device_volume=%d in target_init", (int)init_volume);
 	}
 
 	session->supported_events |= (1 << AVRCP_EVENT_STATUS_CHANGED) |
@@ -4497,9 +4502,12 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 
 	/* Always attempt to update the transport volume */
 	media_transport_update_device_volume(session->dev, volume);
+	DBG("set last_device_volume=%d in avrcp_handle_set_volume", (int)volume);
 
-	if (player != NULL)
+	if (player != NULL) {
+		DBG("set player volume=%d in avrcp_handle_set_volume", (int)volume);
 		player->cb->set_volume(volume, session->dev, player->user_data);
+	}
 
 	return FALSE;
 }
