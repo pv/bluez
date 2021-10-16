@@ -3735,7 +3735,7 @@ static void avrcp_volume_changed(struct avrcp *session,
 	DBG("set last_device_volume=%d in avrcp_volume_changed", (int)volume);
 
 	if (player) {
-		DBG("set player volume=%d in avrcp_volume_changed", (int)volume);
+		DBG("set player %s volume=%d in avrcp_volume_changed", player->cb->get_name(player->user_data), (int)volume);
 		player->cb->set_volume(volume, session->dev, player->user_data);
 	}
 }
@@ -4505,7 +4505,7 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 	DBG("set last_device_volume=%d in avrcp_handle_set_volume", (int)volume);
 
 	if (player != NULL) {
-		DBG("set player volume=%d in avrcp_handle_set_volume", (int)volume);
+		DBG("set player %s volume=%d in avrcp_handle_set_volume", player->cb->get_name(player->user_data), (int)volume);
 		player->cb->set_volume(volume, session->dev, player->user_data);
 	}
 

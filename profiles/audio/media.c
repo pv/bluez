@@ -1080,7 +1080,7 @@ static const char *media_player_get_player_name(void *user_data)
 	struct media_player *mp = user_data;
 
 	if (!mp->name)
-		return "Player";
+		return mp->sender;
 
 	return mp->name;
 }
