@@ -68,7 +68,14 @@ struct a2dp_sep {
 	struct a2dp_endpoint *endpoint;
 	uint8_t type;
 	uint8_t codec;
+	uint8_t seid;
 	struct avdtp_local_sep *lsep;
+	void *user_data;
+	GDestroyNotify destroy;
+};
+
+struct a2dp_sep_instance {
+	struct a2dp_sep *sep;
 	struct avdtp *session;
 	struct avdtp_stream *stream;
 	unsigned int suspend_timer;
