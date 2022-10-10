@@ -137,7 +137,6 @@ struct test_data {
 	uint8_t client_num;
 	int step;
 	bool reconnect;
-	bool bdaddr_random;
 };
 
 struct iso_client_data {
@@ -149,6 +148,7 @@ struct iso_client_data {
 	bool bcast;
 	bool defer;
 	bool disconnect;
+	bool bdaddr_random;
 };
 
 static void mgmt_debug(const char *str, void *user_data)
@@ -614,6 +614,14 @@ static const struct iso_client_data connect_16_2_1_send_recv = {
 	.recv = &send_16_2_1,
 };
 
+static const struct iso_client_data connect_16_2_1_send_recv_random_addr = {
+	.qos = QOS_16_2_1,
+	.expect_err = 0,
+	.send = &send_16_2_1,
+	.recv = &send_16_2_1,
+	.bdaddr_random = true,
+};
+
 static const struct iso_client_data disconnect_16_2_1 = {
 	.qos = QOS_16_2_1,
 	.expect_err = 0,
@@ -913,8 +921,7 @@ static int create_iso_sock(struct test_data *data)
 	memset(&addr, 0, sizeof(addr));
 	addr.iso_family = AF_BLUETOOTH;
 	bacpy(&addr.iso_bdaddr, (void *) master_bdaddr);
-	addr.iso_bdaddr_type = data->bdaddr_random ? BDADDR_LE_RANDOM :
-							BDADDR_LE_PUBLIC;
+	addr.iso_bdaddr_type = BDADDR_LE_PUBLIC;
 
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		err = -errno;
@@ -1000,12 +1007,12 @@ static int connect_iso_sock(struct test_data *data, uint8_t num, int sk)
 	addr.iso_family = AF_BLUETOOTH;
 	bacpy(&addr.iso_bdaddr, client_bdaddr ? (void *) client_bdaddr :
 							BDADDR_ANY);
-	addr.iso_bdaddr_type = data->bdaddr_random ? BDADDR_LE_RANDOM :
+	addr.iso_bdaddr_type = isodata->bdaddr_random ? BDADDR_LE_RANDOM :
 							BDADDR_LE_PUBLIC;
 
 	ba2str(&addr.iso_bdaddr, str);
 
-	tester_print("Connecting to %s...", str);
+	tester_print("Connecting to %s (%x)...", str, addr.iso_bdaddr_type);
 
 	err = connect(sk, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0 && !(errno == EAGAIN || errno == EINPROGRESS)) {
@@ -1808,6 +1815,10 @@ int main(int argc, char *argv[])
 						setup_powered, test_listen);
 
 	test_iso("ISO Send and Receive - Success", &connect_16_2_1_send_recv,
+							setup_powered,
+							test_connect);
+
+	test_iso("ISO Send and Receive Random Addr - Success", &connect_16_2_1_send_recv_random_addr,
 							setup_powered,
 							test_connect);
 
