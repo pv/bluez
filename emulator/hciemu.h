@@ -54,6 +54,8 @@ uint8_t *hciemu_get_features(struct hciemu *hciemu);
 const uint8_t *hciemu_get_central_bdaddr(struct hciemu *hciemu);
 const uint8_t *hciemu_get_client_bdaddr(struct hciemu *hciemu);
 
+const uint8_t *hciemu_get_central_random_bdaddr(struct hciemu *hciemu);
+
 uint8_t hciemu_get_central_scan_enable(struct hciemu *hciemu);
 
 uint8_t hciemu_get_central_le_scan_enable(struct hciemu *hciemu);

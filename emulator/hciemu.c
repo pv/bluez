@@ -559,6 +559,20 @@ const uint8_t *hciemu_get_client_bdaddr(struct hciemu *hciemu)
 	return hciemu_client_bdaddr(client);
 }
 
+const uint8_t *hciemu_get_central_random_bdaddr(struct hciemu *hciemu)
+{
+	struct btdev *dev;
+
+	if (!hciemu || !hciemu->vhci)
+		return NULL;
+
+	dev = vhci_get_btdev(hciemu->vhci);
+	if (!dev)
+		return NULL;
+
+	return btdev_get_bdaddr(dev);
+}
+
 uint8_t hciemu_get_central_scan_enable(struct hciemu *hciemu)
 {
 	struct btdev *dev;
