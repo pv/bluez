@@ -137,6 +137,7 @@ struct test_data {
 	uint8_t client_num;
 	int step;
 	bool reconnect;
+	bool bdaddr_random;
 };
 
 struct iso_client_data {
@@ -912,7 +913,8 @@ static int create_iso_sock(struct test_data *data)
 	memset(&addr, 0, sizeof(addr));
 	addr.iso_family = AF_BLUETOOTH;
 	bacpy(&addr.iso_bdaddr, (void *) master_bdaddr);
-	addr.iso_bdaddr_type = BDADDR_LE_PUBLIC;
+	addr.iso_bdaddr_type = data->bdaddr_random ? BDADDR_LE_RANDOM :
+							BDADDR_LE_PUBLIC;
 
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		err = -errno;
@@ -998,7 +1000,8 @@ static int connect_iso_sock(struct test_data *data, uint8_t num, int sk)
 	addr.iso_family = AF_BLUETOOTH;
 	bacpy(&addr.iso_bdaddr, client_bdaddr ? (void *) client_bdaddr :
 							BDADDR_ANY);
-	addr.iso_bdaddr_type = BDADDR_LE_PUBLIC;
+	addr.iso_bdaddr_type = data->bdaddr_random ? BDADDR_LE_RANDOM :
+							BDADDR_LE_PUBLIC;
 
 	ba2str(&addr.iso_bdaddr, str);
 
