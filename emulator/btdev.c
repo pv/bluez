@@ -6972,7 +6972,7 @@ bool btdev_set_bdaddr(struct btdev *btdev, const uint8_t *bdaddr)
 
 const uint8_t *btdev_get_random_bdaddr(struct btdev *btdev)
 {
-	return btdev->random_bdaddr;
+	return btdev->random_addr;
 }
 
 uint8_t *btdev_get_features(struct btdev *btdev)
