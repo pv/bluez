@@ -1259,6 +1259,10 @@ static bool experimental_endpoint_supported(struct btd_adapter *adapter)
 	if (!btd_adapter_has_exp_feature(adapter, EXP_FEAT_ISO_SOCKET))
 		return false;
 
+	if (!btd_adapter_cis_central_capable(adapter) &&
+	    !btd_adapter_cis_peripheral_capable(adapter))
+		return false;
+
 	return g_dbus_get_flags() & G_DBUS_FLAG_ENABLE_EXPERIMENTAL;
 }
 
