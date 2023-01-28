@@ -53,6 +53,8 @@
 #include "src/log.h"
 #include "src/error.h"
 
+#include "media.h"
+
 #define PACS_UUID_STR "00001850-0000-1000-8000-00805f9b34fb"
 #define MEDIA_ENDPOINT_INTERFACE "org.bluez.MediaEndpoint1"
 
@@ -1252,8 +1254,8 @@ static int bap_probe(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
 	struct btd_adapter *adapter = device_get_adapter(device);
-	struct btd_gatt_database *database = btd_adapter_get_database(adapter);
 	struct bap_data *data = btd_service_get_user_data(service);
+	struct gatt_db *local_db, *device_db;
 	char addr[18];
 
 	ba2str(device_get_address(device), addr);
@@ -1264,17 +1266,38 @@ static int bap_probe(struct btd_service *service)
 		return -ENOTSUP;
 	}
 
+	if (!btd_adapter_cis_central_capable(adapter) &&
+	    !btd_adapter_cis_peripheral_capable(adapter)) {
+		DBG("BAP requires CIS features, unsupported by adapter");
+		return -ENOTSUP;
+	}
+
 	/* Ignore, if we were probed for this device already */
 	if (data) {
 		error("Profile probed twice for the same device!");
 		return -EINVAL;
 	}
 
+	local_db = media_get_bap_local_gatt_db(adapter);
+	if (!local_db) {
+		error("No local GATT DB");
+		return -EINVAL;
+	}
+
+	/*
+	 * Also if we are not going to be Central, we need to manage the CIS
+	 * sockets here. In such case, ignore the GATT services of the device
+	 * completely, but still register the necessary hooks.
+	 */
+	if (btd_adapter_cis_central_capable(adapter))
+		device_db = btd_device_get_gatt_db(device);
+	else
+		device_db = NULL;
+
 	data = bap_data_new(device);
 	data->service = service;
 
-	data->bap = bt_bap_new(btd_gatt_database_get_db(database),
-					btd_device_get_gatt_db(device));
+	data->bap = bt_bap_new(local_db, device_db);
 	if (!data->bap) {
 		error("Unable to create BAP instance");
 		free(data);

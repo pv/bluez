@@ -22,3 +22,5 @@ const char *media_endpoint_get_uuid(struct media_endpoint *endpoint);
 uint8_t media_endpoint_get_codec(struct media_endpoint *endpoint);
 
 int8_t media_player_get_device_volume(struct btd_device *device);
+
+struct gatt_db *media_get_bap_local_gatt_db(struct btd_adapter *adapter);

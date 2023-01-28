@@ -41,6 +41,7 @@
 #include "src/shared/queue.h"
 #include "src/shared/att.h"
 #include "src/shared/bap.h"
+#include "src/shared/gatt-db.h"
 
 #include "avdtp.h"
 #include "media.h"
@@ -71,6 +72,7 @@ struct media_adapter {
 	struct queue		*apps;		/* Application list */
 	GSList			*endpoints;	/* Endpoints list */
 	GSList			*players;	/* Players list */
+	struct gatt_db		*bap_local_db;
 };
 
 struct endpoint_request {
@@ -241,18 +243,23 @@ static void media_endpoint_exit(DBusConnection *connection, void *user_data)
 	media_endpoint_remove(endpoint);
 }
 
-static struct media_adapter *find_adapter(struct btd_device *device)
+static struct media_adapter *find_media_adapter(struct btd_adapter *adapter)
 {
 	GSList *l;
 
 	for (l = adapters; l; l = l->next) {
-		struct media_adapter *adapter = l->data;
+		struct media_adapter *media_adapter = l->data;
 
-		if (adapter->btd_adapter == device_get_adapter(device))
-			return adapter;
+		if (media_adapter->btd_adapter == adapter)
+			return media_adapter;
 	}
 
 	return NULL;
+}
+
+static struct media_adapter *find_adapter(struct btd_device *device)
+{
+	return find_media_adapter(device_get_adapter(device));
 }
 
 static void endpoint_remove_transport(struct media_endpoint *endpoint,
@@ -1102,10 +1109,34 @@ static void bap_debug(const char *str, void *user_data)
 	DBG("%s", str);
 }
 
+struct gatt_db *media_get_bap_local_gatt_db(struct btd_adapter *adapter)
+{
+	struct btd_gatt_database *database = btd_adapter_get_database(adapter);
+	struct media_adapter *media_adapter;
+
+	if (!database)
+		return NULL;
+
+	/*
+	 * If adapter is not CIS Peripheral capable, we use an unpublished
+	 * GATT DB for the local endpoints.
+	 */
+	if (btd_adapter_cis_peripheral_capable(adapter))
+		return btd_gatt_database_get_db(database);
+
+	media_adapter = find_media_adapter(adapter);
+	if (!media_adapter)
+		return NULL;
+
+	if (!media_adapter->bap_local_db)
+		media_adapter->bap_local_db = gatt_db_new();
+
+	return media_adapter->bap_local_db;
+}
+
 static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 								int *err)
 {
-	struct btd_gatt_database *database;
 	struct gatt_db *db;
 	struct iovec data;
 	char *name;
@@ -1116,8 +1147,8 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		return false;
 	}
 
-	database = btd_adapter_get_database(endpoint->adapter->btd_adapter);
-	if (!database) {
+	db = media_get_bap_local_gatt_db(endpoint->adapter->btd_adapter);
+	if (!db) {
 		error("Adapter database not found");
 		return false;
 	}
@@ -1127,8 +1158,6 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		error("Unable to parse endpoint capabilities");
 		return false;
 	}
-
-	db = btd_gatt_database_get_db(database);
 
 	data.iov_base = endpoint->capabilities;
 	data.iov_len = endpoint->size;
@@ -3025,6 +3054,9 @@ static void path_free(void *data)
 	}
 
 	adapters = g_slist_remove(adapters, adapter);
+
+	if (adapter->bap_local_db)
+		gatt_db_unref(adapter->bap_local_db);
 
 	btd_adapter_unref(adapter->btd_adapter);
 	g_free(adapter);
