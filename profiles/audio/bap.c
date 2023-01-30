@@ -1254,6 +1254,8 @@ static int bap_probe(struct btd_service *service)
 	struct btd_adapter *adapter = device_get_adapter(device);
 	struct btd_gatt_database *database = btd_adapter_get_database(adapter);
 	struct bap_data *data = btd_service_get_user_data(service);
+	struct bt_bap_db *ldb;
+	struct gatt_db *device_db;
 	char addr[18];
 
 	ba2str(device_get_address(device), addr);
@@ -1264,17 +1266,29 @@ static int bap_probe(struct btd_service *service)
 		return -ENOTSUP;
 	}
 
+	if (!btd_adapter_cis_central_capable(adapter) &&
+	    !btd_adapter_cis_peripheral_capable(adapter)) {
+		DBG("BAP requires CIS features, unsupported by adapter");
+		return -ENOTSUP;
+	}
+
 	/* Ignore, if we were probed for this device already */
 	if (data) {
 		error("Profile probed twice for the same device!");
 		return -EINVAL;
 	}
 
+	if (btd_adapter_cis_central_capable(adapter))
+		device_db = btd_device_get_gatt_db(device);
+	else
+		device_db = NULL;
+
 	data = bap_data_new(device);
 	data->service = service;
 
-	data->bap = bt_bap_new(btd_gatt_database_get_db(database),
-					btd_device_get_gatt_db(device));
+	ldb = bt_bap_get_local_db(btd_gatt_database_get_db(database),
+				btd_adapter_cis_peripheral_capable(adapter));
+	data->bap = bt_bap_new(ldb, device_db);
 	if (!data->bap) {
 		error("Unable to create BAP instance");
 		free(data);

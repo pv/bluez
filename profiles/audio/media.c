@@ -1105,8 +1105,9 @@ static void bap_debug(const char *str, void *user_data)
 static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 								int *err)
 {
+	struct btd_adapter *adapter = endpoint->adapter->btd_adapter;
 	struct btd_gatt_database *database;
-	struct gatt_db *db;
+	struct bt_bap_db *ldb;
 	struct iovec data;
 	char *name;
 
@@ -1116,7 +1117,7 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		return false;
 	}
 
-	database = btd_adapter_get_database(endpoint->adapter->btd_adapter);
+	database = btd_adapter_get_database(adapter);
 	if (!database) {
 		error("Adapter database not found");
 		return false;
@@ -1127,8 +1128,6 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		error("Unable to parse endpoint capabilities");
 		return false;
 	}
-
-	db = btd_gatt_database_get_db(database);
 
 	data.iov_base = endpoint->capabilities;
 	data.iov_len = endpoint->size;
@@ -1141,7 +1140,9 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		return false;
 	}
 
-	endpoint->pac = bt_bap_add_pac(db, name, type, endpoint->codec,
+	ldb = bt_bap_get_local_db(btd_gatt_database_get_db(database),
+				btd_adapter_cis_peripheral_capable(adapter));
+	endpoint->pac = bt_bap_add_pac(ldb, name, type, endpoint->codec,
 					&endpoint->qos, &data, NULL);
 	if (!endpoint->pac) {
 		error("Unable to create PAC");
