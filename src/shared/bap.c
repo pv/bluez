@@ -110,11 +110,13 @@ struct bt_ascs {
 
 struct bt_bap_db {
 	struct gatt_db *db;
-	struct bt_pacs *pacs;
-	struct bt_ascs *ascs;
 	struct queue *sinks;
 	struct queue *sources;
+
+	/* The following are NULL if central-only (no GATT) */
 	struct queue *endpoints;
+	struct bt_pacs *pacs;
+	struct bt_ascs *ascs;
 };
 
 struct bt_bap_req {
@@ -565,6 +567,7 @@ static void bap_disconnected(int err, void *user_data)
 static struct bt_bap *bap_get_session(struct bt_att *att, struct gatt_db *db)
 {
 	const struct queue_entry *entry;
+	struct bt_bap_db *ldb;
 	struct bt_bap *bap;
 
 	for (entry = queue_get_entries(sessions); entry; entry = entry->next) {
@@ -574,7 +577,8 @@ static struct bt_bap *bap_get_session(struct bt_att *att, struct gatt_db *db)
 			return bap;
 	}
 
-	bap = bt_bap_new(db, NULL);
+	ldb = bt_bap_get_local_db(db, true);
+	bap = bt_bap_new(ldb, NULL);
 	bap->att = att;
 
 	bt_bap_attach(bap, NULL);
@@ -620,7 +624,7 @@ static struct bt_bap_endpoint *bap_get_endpoint(struct bt_bap_db *db,
 {
 	struct bt_bap_endpoint *ep;
 
-	if (!db || !attr)
+	if (!db || !attr || !db->endpoints)
 		return NULL;
 
 	ep = queue_find(db->endpoints, bap_endpoint_match, attr);
@@ -652,7 +656,7 @@ static struct bt_bap_endpoint *bap_get_endpoint_id(struct bt_bap *bap,
 	struct gatt_db_attribute *attr = NULL;
 	size_t i;
 
-	if (!bap || !db)
+	if (!bap || !db || !db->endpoints)
 		return NULL;
 
 	ep = queue_find(db->endpoints, bap_endpoint_match_id, UINT_TO_PTR(id));
@@ -2170,7 +2174,7 @@ static struct bt_ascs *ascs_new(struct gatt_db *db)
 	return ascs;
 }
 
-static struct bt_bap_db *bap_db_new(struct gatt_db *db)
+static struct bt_bap_db *bap_db_new(struct gatt_db *db, bool peripheral)
 {
 	struct bt_bap_db *bdb;
 
@@ -2181,23 +2185,26 @@ static struct bt_bap_db *bap_db_new(struct gatt_db *db)
 	bdb->db = gatt_db_ref(db);
 	bdb->sinks = queue_new();
 	bdb->sources = queue_new();
-	bdb->endpoints = queue_new();
 
 	if (!bap_db)
 		bap_db = queue_new();
 
-	bdb->pacs = pacs_new(db);
-	bdb->pacs->bdb = bdb;
+	if (peripheral) {
+		bdb->endpoints = queue_new();
 
-	bdb->ascs = ascs_new(db);
-	bdb->ascs->bdb = bdb;
+		bdb->pacs = pacs_new(db);
+		bdb->pacs->bdb = bdb;
+
+		bdb->ascs = ascs_new(db);
+		bdb->ascs->bdb = bdb;
+	}
 
 	queue_push_tail(bap_db, bdb);
 
 	return bdb;
 }
 
-static struct bt_bap_db *bap_get_db(struct gatt_db *db)
+struct bt_bap_db *bt_bap_get_local_db(struct gatt_db *db, bool peripheral)
 {
 	struct bt_bap_db *bdb;
 
@@ -2205,7 +2212,7 @@ static struct bt_bap_db *bap_get_db(struct gatt_db *db)
 	if (bdb)
 		return bdb;
 
-	return bap_db_new(db);
+	return bap_db_new(db, peripheral);
 }
 
 static struct bt_pacs *bap_get_pacs(struct bt_bap *bap)
@@ -2328,6 +2335,9 @@ static void bap_add_sink(struct bt_bap_pac *pac)
 
 	queue_push_tail(pac->bdb->sinks, pac);
 
+	if (!pac->bdb->endpoints)
+		return;
+
 	memset(value, 0, sizeof(value));
 
 	iov.iov_base = value;
@@ -2345,6 +2355,9 @@ static void bap_add_source(struct bt_bap_pac *pac)
 	uint8_t value[512];
 
 	queue_push_tail(pac->bdb->sources, pac);
+
+	if (!pac->bdb->endpoints)
+		return;
 
 	memset(value, 0, sizeof(value));
 
@@ -2373,21 +2386,16 @@ static void notify_session_pac_added(void *data, void *user_data)
 	queue_foreach(bap->pac_cbs, notify_pac_added, user_data);
 }
 
-struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
+struct bt_bap_pac *bt_bap_add_vendor_pac(struct bt_bap_db *bdb,
 					const char *name, uint8_t type,
 					uint8_t id, uint16_t cid, uint16_t vid,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata)
 {
-	struct bt_bap_db *bdb;
 	struct bt_bap_pac *pac;
 	struct bt_bap_codec codec;
 
-	if (!db)
-		return NULL;
-
-	bdb = bap_get_db(db);
 	if (!bdb)
 		return NULL;
 
@@ -2417,13 +2425,13 @@ struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
 	return pac;
 }
 
-struct bt_bap_pac *bt_bap_add_pac(struct gatt_db *db, const char *name,
+struct bt_bap_pac *bt_bap_add_pac(struct bt_bap_db *bdb, const char *name,
 					uint8_t type, uint8_t id,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata)
 {
-	return bt_bap_add_vendor_pac(db, name, type, id, 0x0000, 0x0000, qos,
+	return bt_bap_add_vendor_pac(bdb, name, type, id, 0x0000, 0x0000, qos,
 							data, metadata);
 }
 
@@ -2635,7 +2643,7 @@ static void bap_attached(void *data, void *user_data)
 	cb->attached(bap, cb->user_data);
 }
 
-struct bt_bap *bt_bap_new(struct gatt_db *ldb, struct gatt_db *rdb)
+struct bt_bap *bt_bap_new(struct bt_bap_db *ldb, struct gatt_db *rdb)
 {
 	struct bt_bap *bap;
 	struct bt_bap_db *bdb;
@@ -2643,12 +2651,8 @@ struct bt_bap *bt_bap_new(struct gatt_db *ldb, struct gatt_db *rdb)
 	if (!ldb)
 		return NULL;
 
-	bdb = bap_get_db(ldb);
-	if (!bdb)
-		return NULL;
-
 	bap = new0(struct bt_bap, 1);
-	bap->ldb = bdb;
+	bap->ldb = ldb;
 	bap->reqs = queue_new();
 	bap->pending = queue_new();
 	bap->notify = queue_new();

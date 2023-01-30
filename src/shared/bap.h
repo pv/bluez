@@ -34,6 +34,7 @@
 #define BT_BAP_CONFIG_PHY_CODEC		0x03
 
 struct bt_bap;
+struct bt_bap_db;
 struct bt_bap_pac;
 struct bt_bap_stream;
 
@@ -98,14 +99,14 @@ struct bt_bap_pac_qos {
 	uint32_t ppd_max;
 };
 
-struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
+struct bt_bap_pac *bt_bap_add_vendor_pac(struct bt_bap_db *bdb,
 					const char *name, uint8_t type,
 					uint8_t id, uint16_t cid, uint16_t vid,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata);
 
-struct bt_bap_pac *bt_bap_add_pac(struct gatt_db *db, const char *name,
+struct bt_bap_pac *bt_bap_add_pac(struct bt_bap_db *bdb, const char *name,
 					uint8_t type, uint8_t id,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
@@ -135,7 +136,9 @@ unsigned int bt_bap_register(bt_bap_func_t added, bt_bap_func_t removed,
 							void *user_data);
 bool bt_bap_unregister(unsigned int id);
 
-struct bt_bap *bt_bap_new(struct gatt_db *ldb, struct gatt_db *rdb);
+struct bt_bap_db *bt_bap_get_local_db(struct gatt_db *db, bool peripheral);
+
+struct bt_bap *bt_bap_new(struct bt_bap_db *ldb, struct gatt_db *rdb);
 
 bool bt_bap_set_user_data(struct bt_bap *bap, void *user_data);
 

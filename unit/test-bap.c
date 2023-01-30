@@ -311,6 +311,7 @@ static void test_client(const void *user_data)
 {
 	struct test_data *data = (void *)user_data;
 	struct io *io;
+	struct bt_bap_db *ldb;
 	struct gatt_db *db;
 
 	io = tester_setup_io(data->iov, data->iovcnt);
@@ -321,7 +322,8 @@ static void test_client(const void *user_data)
 	db = gatt_db_new();
 	g_assert(db);
 
-	data->bap = bt_bap_new(db, bt_gatt_client_get_db(data->client));
+	ldb = bt_bap_get_local_db(db, true);
+	data->bap = bt_bap_new(ldb, bt_gatt_client_get_db(data->client));
 	g_assert(data->bap);
 
 	bt_bap_set_debug(data->bap, print_debug, "bt_bap:", NULL);
