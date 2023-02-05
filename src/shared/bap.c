@@ -705,6 +705,8 @@ static void ascs_ase_read(struct gatt_db_attribute *attrib,
 		return;
 	}
 
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, att, id, ep);
+
 	memset(&rsp, 0, sizeof(rsp));
 
 	/* Initialize Endpoint ID with ASE ID */
@@ -713,6 +715,9 @@ static void ascs_ase_read(struct gatt_db_attribute *attrib,
 
 	rsp.id = ep->id;
 	rsp.state = ep->state;
+
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p -> id:%d state:%d", bap, bap->ldb, att,
+			id, ep, rsp.id, rsp.state);
 
 	gatt_db_attribute_read_result(attrib, id, 0, (void *) &rsp,
 							sizeof(rsp));
@@ -1471,6 +1476,7 @@ static uint8_t ascs_config(struct bt_ascs *ascs, struct bt_bap *bap,
 							req->latency);
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1553,6 +1559,7 @@ static uint8_t ascs_qos(struct bt_ascs *ascs, struct bt_bap *bap,
 			qos.sdu, qos.rtn, qos.latency, qos.delay);
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "%s: Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1676,6 +1683,7 @@ static uint8_t ascs_enable(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->meta.ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->meta.ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->meta.ase);
 		ascs_ase_rsp_add(rsp, req->meta.ase,
@@ -1740,6 +1748,7 @@ static uint8_t ascs_start(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1812,6 +1821,7 @@ static uint8_t ascs_disable(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1887,6 +1897,7 @@ static uint8_t ascs_stop(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1952,6 +1963,7 @@ static uint8_t ascs_metadata(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
@@ -1996,6 +2008,7 @@ static uint8_t ascs_release(struct bt_ascs *ascs, struct bt_bap *bap,
 	req = util_iov_pull_mem(iov, sizeof(*req));
 
 	ep = bap_get_endpoint_id(bap, bap->ldb, req->ase);
+	DBG(bap, "bap:%p ldb:%p att:%p id:%d ep:%p", bap, bap->ldb, bap->att, req->ase, ep);
 	if (!ep) {
 		DBG(bap, "Invalid ASE ID 0x%02x", req->ase);
 		ascs_ase_rsp_add(rsp, req->ase,
