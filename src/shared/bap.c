@@ -2191,8 +2191,6 @@ static struct bt_bap_db *bap_db_new(struct gatt_db *db, bool client_only)
 		bap_db = queue_new();
 
 	if (!client_only) {
-		bdb->endpoints = queue_new();
-
 		bdb->pacs = pacs_new(db);
 		bdb->pacs->bdb = bdb;
 
