@@ -3738,7 +3738,7 @@ static void bap_attach_att(struct bt_bap *bap, struct bt_att *att)
 
 bool bt_bap_attach(struct bt_bap *bap, struct bt_gatt_client *client)
 {
-	bt_uuid_t uuid;
+	bt_uuid_t pacs_uuid, ascs_uuid;
 
 	if (queue_find(sessions, NULL, bap)) {
 		/* If instance already been set but there is no client proceed
@@ -3765,6 +3765,13 @@ bool bt_bap_attach(struct bt_bap *bap, struct bt_gatt_client *client)
 		return false;
 
 clone:
+	bt_uuid16_create(&pacs_uuid, PACS_UUID);
+	bt_uuid16_create(&ascs_uuid, ASCS_UUID);
+
+	if (!gatt_db_get_service_with_uuid(bap->rdb->db, &pacs_uuid) ||
+	    !gatt_db_get_service_with_uuid(bap->rdb->db, &ascs_uuid))
+		return false;
+
 	bap->client = bt_gatt_client_clone(client);
 	if (!bap->client)
 		return false;
@@ -3804,11 +3811,10 @@ clone:
 		return true;
 	}
 
-	bt_uuid16_create(&uuid, PACS_UUID);
-	gatt_db_foreach_service(bap->rdb->db, &uuid, foreach_pacs_service, bap);
-
-	bt_uuid16_create(&uuid, ASCS_UUID);
-	gatt_db_foreach_service(bap->rdb->db, &uuid, foreach_ascs_service, bap);
+	gatt_db_foreach_service(bap->rdb->db, &pacs_uuid,
+						foreach_pacs_service, bap);
+	gatt_db_foreach_service(bap->rdb->db, &ascs_uuid,
+						foreach_ascs_service, bap);
 
 	return true;
 }
