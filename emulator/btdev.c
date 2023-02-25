@@ -45,6 +45,9 @@
 #define has_bredr(btdev)	(!((btdev)->features[4] & 0x20))
 #define has_le(btdev)		(!!((btdev)->features[4] & 0x40))
 
+#define iso_flags_pb(f)		(f & 0x0003)
+#define iso_flags_ts(f)		((f >> 2) & 0x0001)
+
 #define ACL_HANDLE 42
 #define ISO_HANDLE 257
 #define SCO_HANDLE 257
@@ -67,6 +70,13 @@ struct btdev_conn {
 	struct btdev *dev;
 	struct btdev_conn *link;
 	void *data;
+};
+
+struct iso_data {
+	uint16_t tx_seq;
+	uint32_t tx_timestamp;
+	bool tx_active;
+	struct bt_hci_bis bis;
 };
 
 struct btdev_al {
@@ -1088,7 +1098,7 @@ static struct btdev_conn *conn_new(struct btdev *dev, uint16_t handle,
 }
 
 static struct btdev_conn *conn_link(struct btdev *dev, struct btdev *remote,
-					uint16_t handle, uint8_t type)
+		uint16_t handle, uint8_t type, struct btdev_conn **remote_conn)
 {
 	struct btdev_conn *conn1, *conn2;
 
@@ -1110,6 +1120,9 @@ static struct btdev_conn *conn_link(struct btdev *dev, struct btdev *remote,
 	util_debug(dev->debug_callback, dev->debug_data,
 				"conn2 %p handle 0x%04x", conn2, conn2->handle);
 
+	if (remote_conn)
+		*remote_conn = conn2;
+
 	return conn1;
 }
 
@@ -1123,7 +1136,7 @@ static struct btdev_conn *conn_add(struct btdev *dev,
 	if (!remote)
 		return NULL;
 
-	return conn_link(dev, remote, handle, type);
+	return conn_link(dev, remote, handle, type, NULL);
 }
 
 static struct btdev_conn *conn_add_acl(struct btdev *dev,
@@ -1134,24 +1147,39 @@ static struct btdev_conn *conn_add_acl(struct btdev *dev,
 
 static struct btdev_conn *conn_add_sco(struct btdev_conn *acl)
 {
-	return conn_link(acl->dev, acl->link->dev, SCO_HANDLE, HCI_SCODATA_PKT);
+	return conn_link(acl->dev, acl->link->dev, SCO_HANDLE, HCI_SCODATA_PKT,
+									NULL);
 }
 
 static struct btdev_conn *conn_add_cis(struct btdev_conn *acl, uint16_t handle)
 {
-	return conn_link(acl->dev, acl->link->dev, handle, HCI_ISODATA_PKT);
+	struct btdev_conn *conn, *remote;
+
+	conn = conn_link(acl->dev, acl->link->dev, handle, HCI_ISODATA_PKT,
+								&remote);
+	if (!conn)
+		return conn;
+
+	conn->data = new0(struct iso_data, 1);
+	remote->data = new0(struct iso_data, 1);
+
+	return conn;
 }
 
 static struct btdev_conn *conn_add_bis(struct btdev *dev, uint16_t handle,
 						const struct bt_hci_bis *bis)
 {
 	struct btdev_conn *conn;
+	struct iso_data *iso_data;
 
 	conn = conn_new(dev, handle, HCI_ISODATA_PKT);
 	if (!conn)
 		return conn;
 
-	conn->data = util_memdup(bis, sizeof(*bis));
+	iso_data = new0(struct iso_data, 1);
+	iso_data->bis = *bis;
+
+	conn->data = iso_data;
 
 	return conn;
 }
@@ -1184,12 +1212,14 @@ static struct btdev_conn *conn_link_bis(struct btdev *dev, struct btdev *remote,
 {
 	struct btdev_conn *conn;
 	struct btdev_conn *bis;
+	struct iso_data *iso_data;
 
 	bis = find_bis_index(remote, index);
 	if (!bis)
 		return NULL;
 
-	conn = conn_add_bis(dev, ISO_HANDLE, bis->data);
+	iso_data = bis->data;
+	conn = conn_add_bis(dev, ISO_HANDLE, &iso_data->bis);
 	if (!conn)
 		return NULL;
 
@@ -5120,12 +5150,14 @@ static void send_biginfo(struct btdev *dev, const struct btdev *remote)
 	struct bt_hci_evt_le_big_info_adv_report ev;
 	const struct btdev_conn *conn;
 	struct bt_hci_bis *bis;
+	struct iso_data *iso_data;
 
 	conn = find_bis_index(remote, 0);
 	if (!conn)
 		return;
 
-	bis = conn->data;
+	iso_data = conn->data;
+	bis = &iso_data->bis;
 
 	memset(&ev, 0, sizeof(ev));
 	ev.sync_handle = cpu_to_le16(dev->le_pa_sync_handle);
@@ -5752,8 +5784,43 @@ static int cmd_read_size_v2(struct btdev *dev, const void *data,
 static int cmd_read_iso_tx_sync(struct btdev *dev, const void *data,
 							uint8_t len)
 {
-	/* TODO */
-	return -ENOTSUP;
+	const struct bt_hci_cmd_le_read_iso_tx_sync *cmd = data;
+	struct bt_hci_rsp_le_read_iso_tx_sync rsp;
+	struct btdev_conn *conn;
+	struct iso_data *iso_data;
+
+	memset(&rsp, 0, sizeof(rsp));
+
+	rsp.handle = cmd->handle;
+
+	conn = queue_find(dev->conns, match_handle,
+					UINT_TO_PTR(le16_to_cpu(cmd->handle)));
+	if (!conn || conn->type != HCI_ISODATA_PKT) {
+		rsp.status = BT_HCI_ERR_UNKNOWN_CONN_ID;
+		cmd_complete(dev, BT_HCI_CMD_LE_READ_ISO_TX_SYNC, &rsp,
+								sizeof(rsp));
+		return 0;
+	}
+
+	iso_data = conn->data;
+
+	if (!iso_data->tx_active) {
+		rsp.status = BT_HCI_ERR_COMMAND_DISALLOWED;
+		cmd_complete(dev, BT_HCI_CMD_LE_READ_ISO_TX_SYNC, &rsp,
+								sizeof(rsp));
+		return 0;
+	}
+
+	/* TODO: COMMAND_DISALLOWED if not configured for tx */
+
+	/* TODO: time offset for framed packets */
+	rsp.status = BT_HCI_ERR_SUCCESS;
+	rsp.seq = cpu_to_le16(iso_data->tx_seq);
+	rsp.timestamp = cpu_to_le32(iso_data->tx_timestamp);
+
+	cmd_complete(dev, BT_HCI_CMD_LE_READ_ISO_TX_SYNC, &rsp, sizeof(rsp));
+
+	return 0;
 }
 
 static int cmd_set_cig_params(struct btdev *dev, const void *data,
@@ -6133,6 +6200,7 @@ static int cmd_big_create_sync_complete(struct btdev *dev, const void *data,
 	} pdu;
 	struct btdev *remote;
 	struct btdev_conn *conn = NULL;
+	struct iso_data *iso_data;
 	struct bt_hci_bis *bis;
 	int i;
 
@@ -6159,7 +6227,8 @@ static int cmd_big_create_sync_complete(struct btdev *dev, const void *data,
 	}
 
 	dev->big_handle = cmd->handle;
-	bis = conn->data;
+	iso_data = conn->data;
+	bis = &iso_data->bis;
 
 	pdu.ev.handle = cmd->handle;
 	memcpy(pdu.ev.latency, bis->sdu_interval, sizeof(pdu.ev.interval));
@@ -6202,7 +6271,7 @@ static int cmd_big_term_sync(struct btdev *dev, const void *data, uint8_t len)
 					entry = entry->next) {
 		struct btdev_conn *conn = entry->data;
 
-		if (!conn->data)
+		if (conn->type != HCI_ISODATA_PKT || conn->link)
 			continue;
 
 		rsp.status = BT_HCI_ERR_SUCCESS;
@@ -7246,19 +7315,39 @@ static void send_acl(struct btdev *dev, const void *data, uint16_t len)
 	send_packet(conn->link->dev, iov, 3);
 }
 
-static void send_iso(struct btdev *dev, const void *data, uint16_t len)
+static void send_iso(struct btdev *remote, const void *data, uint16_t len)
 {
-	struct bt_hci_acl_hdr *hdr;
 	struct iovec iov[2];
-	struct btdev_conn *conn;
 	uint8_t pkt_type = BT_H4_ISO_PKT;
 
 	/* Packet type */
 	iov[0].iov_base = &pkt_type;
 	iov[0].iov_len = sizeof(pkt_type);
 
-	iov[1].iov_base = hdr = (void *) (data);
+	iov[1].iov_base = (void *) data;
 	iov[1].iov_len = len;
+
+	send_packet(remote, iov, 2);
+}
+
+static void process_iso(struct btdev *dev, const void *data, uint16_t len)
+{
+	struct iovec in;
+	struct btdev_conn *conn;
+	struct bt_hci_iso_hdr *hdr;
+	struct iso_data *tx_iso_data;
+	uint8_t pb;
+	bool ts;
+
+	in.iov_base = (void *) data;
+	in.iov_len = len;
+
+	hdr = util_iov_pull_mem(&in, sizeof(*hdr));
+	if (!hdr)
+		return;
+
+	pb = iso_flags_pb(acl_flags(hdr->handle));
+	ts = iso_flags_ts(acl_flags(hdr->handle));
 
 	conn = queue_find(dev->conns, match_handle,
 					UINT_TO_PTR(acl_handle(hdr->handle)));
@@ -7267,8 +7356,37 @@ static void send_iso(struct btdev *dev, const void *data, uint16_t len)
 
 	num_completed_packets(dev, conn->handle);
 
+	tx_iso_data = conn->data;
+
+	if (!(pb & 0x1)) {
+		struct bt_hci_iso_data_start *h;
+		uint32_t timestamp = 0;
+
+		if (ts) {
+			void *t;
+
+			t = util_iov_pull_mem(&in, sizeof(uint32_t));
+			if (!t)
+				return;
+
+			timestamp = get_le32(t);
+		}
+
+		h = util_iov_pull_mem(&in, sizeof(*h));
+		if (!h)
+			return;
+
+		/* TODO: use proper numbers here */
+		tx_iso_data->tx_seq = le16_to_cpu(h->sn);
+		tx_iso_data->tx_active = true;
+		if (ts)
+			tx_iso_data->tx_timestamp = timestamp;
+		else
+			tx_iso_data->tx_timestamp += 10000;
+	}
+
 	if (conn->link)
-		send_packet(conn->link->dev, iov, 2);
+		send_iso(conn->link->dev, data, len);
 }
 
 void btdev_receive_h4(struct btdev *btdev, const void *data, uint16_t len)
@@ -7294,7 +7412,7 @@ void btdev_receive_h4(struct btdev *btdev, const void *data, uint16_t len)
 		send_acl(btdev, data + 1, len - 1);
 		break;
 	case BT_H4_ISO_PKT:
-		send_iso(btdev, data + 1, len - 1);
+		process_iso(btdev, data + 1, len - 1);
 		break;
 	default:
 		util_debug(btdev->debug_callback, btdev->debug_data,
