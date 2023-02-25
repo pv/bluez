@@ -41,6 +41,8 @@
 #define iso_flags_pb(f)		(f & 0x0003)
 #define iso_flags_ts(f)		((f >> 2) & 0x0001)
 #define iso_flags_pack(pb, ts)	(((pb) & 0x03) | (((ts) & 0x01) << 2))
+#define iso_data_len(h)		((h) & 0x3fff)
+#define iso_data_flags(h)	((h) >> 14)
 #define iso_data_len_pack(h, f)	((uint16_t) ((h) | ((f) << 14)))
 
 #define L2CAP_FEAT_FIXED_CHAN	0x00000080
@@ -138,7 +140,7 @@ struct rfcomm_chan_hook {
 };
 
 struct iso_hook {
-	bthost_cid_hook_func_t func;
+	bthost_iso_hook_func_t func;
 	void *user_data;
 	bthost_destroy_func_t destroy;
 };
@@ -2792,24 +2794,42 @@ static void process_acl(struct bthost *bthost, const void *data, uint16_t len)
 static void process_iso_data(struct bthost *bthost, struct btconn *conn,
 					const void *data, uint16_t len)
 {
-	const struct bt_hci_iso_data_start *data_hdr = data;
-	uint16_t data_len;
+	const struct bt_hci_iso_hdr *iso_hdr = data;
+	const struct bt_hci_iso_data_start *data_hdr;
+	uint16_t data_len, hdr_len, sn;
+	bool ts;
+	uint32_t timestamp = 0;
 	struct iso_hook *hook;
 
-	data_len = le16_to_cpu(data_hdr->slen);
-	if (len != sizeof(*data_hdr) + data_len) {
+	ts = iso_flags_ts(acl_flags(iso_hdr->handle));
+
+	hdr_len = sizeof(*iso_hdr) + sizeof(*data_hdr);
+	if (ts) {
+		timestamp = get_le32(iso_hdr->data);
+		hdr_len += sizeof(uint32_t);
+		data_hdr = (void *)(iso_hdr->data + sizeof(uint32_t));
+	} else {
+		data_hdr = (void *)iso_hdr->data;
+	}
+
+	data_len = iso_data_len(le16_to_cpu(data_hdr->slen));
+	if (len != hdr_len + data_len) {
 		bthost_debug(bthost, "ISO invalid length: %u != %zu",
-					len, sizeof(*data_hdr) + data_len);
+					len, hdr_len + data_len);
 		return;
 	}
 
-	bthost_debug(bthost, "ISO data: %u bytes (%u)", data_len, data_hdr->sn);
+	sn = le16_to_cpu(data_hdr->sn);
+
+	bthost_debug(bthost, "ISO data: %u bytes (%u) ts %u sn %u tstamp %u",
+			data_len, sn, ts, sn, timestamp);
 
 	hook = conn->iso_hook;
 	if (!hook)
 		return;
 
-	hook->func(data_hdr->data, data_len, hook->user_data);
+	hook->func(data_hdr->data, data_len, ts, sn, timestamp,
+							hook->user_data);
 }
 
 static void append_iso_data(struct bthost *bthost, struct btconn *conn,
@@ -2832,18 +2852,28 @@ static void append_iso_data(struct bthost *bthost, struct btconn *conn,
 
 static void process_iso(struct bthost *bthost, const void *data, uint16_t len)
 {
-	const struct bt_hci_iso_hdr *iso_hdr = data;
+	const struct bt_hci_iso_hdr *iso_hdr;
 	const struct bt_hci_iso_data_start *data_hdr;
+	struct iovec in;
 	uint16_t handle, iso_len, data_len;
-	uint8_t flags;
+	uint8_t flags, pb, ts;
 	struct btconn *conn;
+
+	in.iov_base = (void *) data;
+	in.iov_len = len;
+
+	iso_hdr = util_iov_pull_mem(&in, sizeof(*iso_hdr));
+	if (!iso_hdr)
+		return;
 
 	iso_len = le16_to_cpu(iso_hdr->dlen);
 	if (len != sizeof(*iso_hdr) + iso_len)
 		return;
 
 	handle = acl_handle(iso_hdr->handle);
-	flags = iso_flags_pb(acl_flags(iso_hdr->handle));
+	flags = acl_flags(iso_hdr->handle);
+	pb = iso_flags_pb(flags);
+	ts = iso_flags_ts(flags);
 
 	conn = bthost_find_conn(bthost, handle);
 	if (!conn) {
@@ -2851,9 +2881,7 @@ static void process_iso(struct bthost *bthost, const void *data, uint16_t len)
 		return;
 	}
 
-	data_hdr = (void *) data + sizeof(*iso_hdr);
-
-	switch (flags) {
+	switch (pb) {
 	case 0x00:
 	case 0x02:
 		if (conn->recv_data) {
@@ -2861,17 +2889,32 @@ static void process_iso(struct bthost *bthost, const void *data, uint16_t len)
 			free_recv_data(conn);
 		}
 
-		data_len = le16_to_cpu(data_hdr->slen) + sizeof(*data_hdr);
+		if (ts && !util_iov_pull(&in, sizeof(uint32_t))) {
+			bthost_debug(bthost, "Invalid ISO frame header (ts)");
+			return;
+		}
+
+		data_hdr = util_iov_pull_mem(&in, sizeof(*data_hdr));
+		if (!data_hdr) {
+			bthost_debug(bthost, "Invalid ISO frame header");
+			return;
+		}
+
+		data_len = iso_data_len(le16_to_cpu(data_hdr->slen))
+							+ sizeof(*data_hdr);
+		if (ts)
+			data_len += sizeof(uint32_t);
 
 		bthost_debug(bthost, "iso_len %u data_len %u", iso_len,
 								data_len);
 
 		if (iso_len == data_len) {
-			process_iso_data(bthost, conn, iso_hdr->data, iso_len);
+			process_iso_data(bthost, conn, data, len);
 			break;
 		}
 
-		new_recv_data(conn, data_len);
+		new_recv_data(conn, data_len + sizeof(*iso_hdr));
+		append_iso_data(bthost, conn, flags, iso_hdr, sizeof(*iso_hdr));
 		/* fall through */
 	case 0x01:
 	case 0x03:
