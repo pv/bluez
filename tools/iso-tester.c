@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <stdbool.h>
 
 #include <glib.h>
@@ -1176,6 +1177,7 @@ static void iso_recv(struct test_data *data, GIOChannel *io)
 static void iso_send(struct test_data *data, GIOChannel *io)
 {
 	const struct iso_client_data *isodata = data->test_data;
+	struct bt_iso_tx_info_ctl ctl;
 	ssize_t ret;
 	int sk;
 
@@ -1183,12 +1185,26 @@ static void iso_send(struct test_data *data, GIOChannel *io)
 
 	tester_print("Writing %zu bytes of data", isodata->send->iov_len);
 
+	ioctl(sk, TIOCOUTQ, &ctl);
+
 	ret = writev(sk, isodata->send, 1);
 	if (ret < 0 || isodata->send->iov_len != (size_t) ret) {
 		tester_warn("Failed to write %zu bytes: %s (%d)",
 				isodata->send->iov_len, strerror(errno), errno);
 		tester_test_failed();
 		return;
+	}
+
+	if (isodata->ts || true) {
+		int err;
+
+		err = ioctl(sk, TIOCOUTQ, &ctl);
+		if (err < 0) {
+			tester_warn("ioctl TIOCOUTQ failed : %s (%d)",
+						strerror(errno), errno);
+			tester_test_failed();
+			return;
+		}
 	}
 
 	if (isodata->bcast) {

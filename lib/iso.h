@@ -35,6 +35,20 @@ struct sockaddr_iso {
 	struct sockaddr_iso_bc iso_bc[];
 };
 
+/* ISO timing and packet information, both from packet completion and
+ * LE Read ISO TX Sync, at a point of time immediately after completion
+ * of the read sync command.
+ */
+struct bt_iso_tx_info_ctl {
+	uint64_t	time;
+	uint64_t	pkt_time;
+	uint16_t	pkt_sn;
+	uint16_t	pkt_queue;
+	uint32_t	sync_timestamp;
+	uint32_t	sync_offset;
+	uint16_t	sync_sn;
+};
+
 #ifdef __cplusplus
 }
 #endif
