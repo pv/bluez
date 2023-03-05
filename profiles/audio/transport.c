@@ -108,8 +108,6 @@ struct media_transport {
 					struct media_owner *owner);
 	void			(*cancel) (struct media_transport *transport,
 								guint id);
-	void			(*set_state) (struct media_transport *transport,
-						transport_state_t state);
 	void			*(*get_stream)
 					(struct media_transport *transport);
 	GDestroyNotify		destroy;
@@ -193,10 +191,6 @@ static void transport_set_state(struct media_transport *transport,
 						transport->path,
 						MEDIA_TRANSPORT_INTERFACE,
 						"State");
-
-	/* Update transport specific data */
-	if (transport->set_state)
-		transport->set_state(transport, state);
 }
 
 void media_transport_destroy(struct media_transport *transport)
@@ -278,22 +272,6 @@ static void media_owner_free(struct media_owner *owner)
 	g_free(owner);
 }
 
-static void linked_transport_remove_owner(void *data, void *user_data)
-{
-	struct bt_bap_stream *stream = data;
-	struct media_owner *owner = user_data;
-	struct media_transport *transport;
-
-	transport = find_transport_by_bap_stream(stream);
-	if (!transport) {
-		error("Unable to find transport");
-		return;
-	}
-
-	DBG("Transport %s Owner %s", transport->path, owner->name);
-	transport->owner = NULL;
-}
-
 static void media_transport_remove_owner(struct media_transport *transport)
 {
 	struct media_owner *owner = transport->owner;
@@ -309,9 +287,6 @@ static void media_transport_remove_owner(struct media_transport *transport)
 		media_request_reply(owner->pending, EIO);
 
 	transport->owner = NULL;
-	if (bap->linked)
-		queue_foreach(bt_bap_stream_io_get_links(bap->stream),
-				linked_transport_remove_owner, owner);
 
 	if (owner->watch)
 		g_dbus_remove_watch(btd_get_dbus_connection(), owner->watch);
@@ -469,22 +444,6 @@ static void media_owner_exit(DBusConnection *connection, void *user_data)
 	media_transport_remove_owner(owner->transport);
 }
 
-static void linked_transport_set_owner(void *data, void *user_data)
-{
-	struct bt_bap_stream *stream = data;
-	struct media_owner *owner = user_data;
-	struct media_transport *transport;
-
-	transport = find_transport_by_bap_stream(stream);
-	if (!transport) {
-		error("Unable to find transport");
-		return;
-	}
-
-	DBG("Transport %s Owner %s", transport->path, owner->name);
-	transport->owner = owner;
-}
-
 static void media_transport_set_owner(struct media_transport *transport,
 					struct media_owner *owner)
 {
@@ -492,10 +451,6 @@ static void media_transport_set_owner(struct media_transport *transport,
 
 	DBG("Transport %s Owner %s", transport->path, owner->name);
 	transport->owner = owner;
-
-	if (bap->linked)
-		queue_foreach(bt_bap_stream_io_get_links(bap->stream),
-				linked_transport_set_owner, owner);
 
 	owner->transport = transport;
 	owner->watch = g_dbus_add_disconnect_watch(btd_get_dbus_connection(),
@@ -1234,7 +1189,7 @@ static guint resume_bap(struct media_transport *transport,
 	}
 
 	meta = bt_bap_stream_get_metadata(bap->stream);
-	id = bt_bap_stream_enable(bap->stream, bap->linked, meta,
+	id = bt_bap_stream_enable(bap->stream, false, meta,
 					bap_enable_complete, owner);
 	if (!id)
 		return 0;
@@ -1287,7 +1242,7 @@ static guint suspend_bap(struct media_transport *transport,
 
 	bap_update_links(transport);
 
-	return bt_bap_stream_disable(bap->stream, bap->linked, func, owner);
+	return bt_bap_stream_disable(bap->stream, false, func, owner);
 }
 
 static void cancel_bap(struct media_transport *transport, guint id)
@@ -1298,34 +1253,6 @@ static void cancel_bap(struct media_transport *transport, guint id)
 		return;
 
 	bt_bap_stream_cancel(bap->stream, id);
-}
-
-static void link_set_state(void *data, void *user_data)
-{
-	struct bt_bap_stream *stream = data;
-	transport_state_t state = PTR_TO_UINT(user_data);
-	struct media_transport *transport;
-
-	transport = find_transport_by_bap_stream(stream);
-	if (!transport) {
-		error("Unable to find transport");
-		return;
-	}
-
-	transport_set_state(transport, state);
-}
-
-static void set_state_bap(struct media_transport *transport,
-					transport_state_t state)
-{
-	struct bap_transport *bap = transport->data;
-
-	if (!bap->linked)
-		return;
-
-	/* Update links */
-	queue_foreach(bt_bap_stream_io_get_links(bap->stream), link_set_state,
-							UINT_TO_PTR(state));
 }
 
 static void bap_state_changed(struct bt_bap_stream *stream, uint8_t old_state,
@@ -1447,7 +1374,6 @@ static int media_transport_init_bap(struct media_transport *transport,
 	transport->resume = resume_bap;
 	transport->suspend = suspend_bap;
 	transport->cancel = cancel_bap;
-	transport->set_state = set_state_bap;
 	transport->get_stream = get_stream_bap;
 	transport->destroy = free_bap;
 
