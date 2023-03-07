@@ -5962,7 +5962,6 @@ static int cmd_remove_cig(struct btdev *dev, const void *data, uint8_t len)
 	const struct bt_hci_cmd_le_remove_cig *cmd = data;
 	struct bt_hci_rsp_le_remove_cig rsp;
 
-	memset(&dev->le_cig, 0, sizeof(dev->le_cig));
 	memset(&rsp, 0, sizeof(rsp));
 
 	rsp.cig_id = cmd->cig_id;
@@ -5971,6 +5970,8 @@ static int cmd_remove_cig(struct btdev *dev, const void *data, uint8_t len)
 		rsp.status = BT_HCI_ERR_SUCCESS;
 	else
 		rsp.status = BT_HCI_ERR_UNKNOWN_CONN_ID;
+
+	memset(&dev->le_cig, 0, sizeof(dev->le_cig));
 
 	cmd_complete(dev, BT_HCI_CMD_LE_REMOVE_CIG, &rsp, sizeof(rsp));
 
