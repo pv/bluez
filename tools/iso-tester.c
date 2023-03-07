@@ -587,6 +587,12 @@ static const struct iso_client_data defer_16_2_1 = {
 	.defer = true,
 };
 
+static const struct iso_client_data defer_1_16_2_1 = {
+	.qos = QOS_1_16_2_1,
+	.expect_err = 0,
+	.defer = true,
+};
+
 static const struct iso_client_data connect_16_2_1_defer_send = {
 	.qos = QOS_16_2_1,
 	.expect_err = 0,
@@ -1324,13 +1330,10 @@ static gboolean iso_connect2_cb(GIOChannel *io, GIOCondition cond,
 	return iso_connect(io, cond, user_data);
 }
 
-static void setup_connect(struct test_data *data, uint8_t num, GIOFunc func)
+static int setup_sock(struct test_data *data, uint8_t num)
 {
 	const struct iso_client_data *isodata = data->test_data;
-	GIOChannel *io;
 	int sk, err;
-	char c;
-	struct pollfd pfd;
 
 	sk = create_iso_sock(data);
 	if (sk < 0) {
@@ -1338,7 +1341,8 @@ static void setup_connect(struct test_data *data, uint8_t num, GIOFunc func)
 			tester_test_abort();
 		else
 			tester_test_failed();
-		return;
+
+		return sk;
 	}
 
 	err = connect_iso_sock(data, num, sk);
@@ -1352,41 +1356,64 @@ static void setup_connect(struct test_data *data, uint8_t num, GIOFunc func)
 		else
 			tester_test_failed();
 
-		return;
+		return err;
 	}
 
+	return sk;
+}
+
+static int connect_deferred(int sk)
+{
+	int defer;
+	socklen_t len;
+	struct pollfd pfd;
+	char c;
+
+	/* Check if socket has DEFER_SETUP set */
+	len = sizeof(defer);
+	if (getsockopt(sk, SOL_BLUETOOTH, BT_DEFER_SETUP, &defer,
+					&len) < 0) {
+		tester_warn("getsockopt: %s (%d)", strerror(errno),
+				errno);
+		tester_test_failed();
+		return 0;
+	}
+
+	memset(&pfd, 0, sizeof(pfd));
+	pfd.fd = sk;
+	pfd.events = POLLOUT;
+
+	if (poll(&pfd, 1, 0) < 0) {
+		tester_warn("poll: %s (%d)", strerror(errno), errno);
+		tester_test_failed();
+		return -EIO;
+	}
+
+	if (!(pfd.revents & POLLOUT)) {
+		if (read(sk, &c, 1) < 0) {
+			tester_warn("read: %s (%d)", strerror(errno),
+					errno);
+			tester_test_failed();
+			return -EIO;
+		}
+	}
+
+	return 0;
+}
+
+static void setup_connect(struct test_data *data, uint8_t num, GIOFunc func)
+{
+	const struct iso_client_data *isodata = data->test_data;
+	int sk;
+	GIOChannel *io;
+
+	sk = setup_sock(data, num);
+	if (sk < 0)
+		return;
+
 	if (isodata->defer) {
-		int defer;
-		socklen_t len;
-
-		/* Check if socket has DEFER_SETUP set */
-		len = sizeof(defer);
-		if (getsockopt(sk, SOL_BLUETOOTH, BT_DEFER_SETUP, &defer,
-				&len) < 0) {
-			tester_warn("getsockopt: %s (%d)", strerror(errno),
-								errno);
-			tester_test_failed();
+		if (connect_deferred(sk) < 0)
 			return;
-		}
-
-		memset(&pfd, 0, sizeof(pfd));
-		pfd.fd = sk;
-		pfd.events = POLLOUT;
-
-		if (poll(&pfd, 1, 0) < 0) {
-			tester_warn("poll: %s (%d)", strerror(errno), errno);
-			tester_test_failed();
-			return;
-		}
-
-		if (!(pfd.revents & POLLOUT)) {
-			if (read(sk, &c, 1) < 0) {
-				tester_warn("read: %s (%d)", strerror(errno),
-								errno);
-				tester_test_failed();
-				return;
-			}
-		}
 	}
 
 	io = g_io_channel_unix_new(sk);
@@ -1668,6 +1695,128 @@ static void test_connect2(const void *test_data)
 	setup_connect(data, 1, iso_connect2_cb);
 }
 
+static void test_connect2_late(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	const struct iso_client_data *isodata = data->test_data;
+	int sk1, sk2;
+	GIOChannel *io;
+	char c;
+	struct pollfd pfd;
+
+	/* Deferred connect after QoS+connect for two sockets */
+
+	sk1 = setup_sock(data, 0);
+	if (sk1 < 0)
+		return;
+
+	sk2 = setup_sock(data, 1);
+	if (sk2 < 0)
+		return;
+
+	if (isodata->defer) {
+		if (connect_deferred(sk1) < 0)
+			return;
+		if (connect_deferred(sk2) < 0)
+			return;
+	}
+
+	io = g_io_channel_unix_new(sk1);
+	g_io_channel_set_close_on_unref(io, TRUE);
+	data->io_id[0] = g_io_add_watch(io, G_IO_OUT, iso_connect_cb, NULL);
+	g_io_channel_unref(io);
+
+	data->step++;
+
+	io = g_io_channel_unix_new(sk2);
+	g_io_channel_set_close_on_unref(io, TRUE);
+	data->io_id[1] = g_io_add_watch(io, G_IO_OUT, iso_connect2_cb, NULL);
+	g_io_channel_unref(io);
+
+	data->step++;
+
+	tester_print("Connect in progress");
+}
+
+static void test_connect2_1(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	const struct iso_client_data *isodata = data->test_data;
+	int sk1, sk2;
+	GIOChannel *io;
+	char c;
+	struct pollfd pfd;
+
+	/* Connect only 1 of 2 CIS */
+
+	sk1 = setup_sock(data, 0);
+	if (sk1 < 0)
+		return;
+
+	sk2 = setup_sock(data, 1);
+	if (sk2 < 0)
+		return;
+
+	if (isodata->defer) {
+		if (connect_deferred(sk1) < 0)
+			return;
+	}
+
+	data->io = g_io_channel_unix_new(sk2);
+
+	io = g_io_channel_unix_new(sk1);
+	g_io_channel_set_close_on_unref(io, TRUE);
+	data->io_id[0] = g_io_add_watch(io, G_IO_OUT, iso_connect_cb, NULL);
+	g_io_channel_unref(io);
+
+	data->step++;
+
+	tester_print("Connect in progress");
+}
+
+static void test_connect2_same(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	const struct iso_client_data *isodata = data->test_data;
+	int sk1, sk2;
+	GIOChannel *io;
+	char c;
+	struct pollfd pfd;
+
+	/* Connect 2 CIS to same client */
+
+	sk1 = setup_sock(data, 0);
+	if (sk1 < 0)
+		return;
+
+	sk2 = setup_sock(data, 0);
+	if (sk2 < 0)
+		return;
+
+	if (isodata->defer) {
+		if (connect_deferred(sk1) < 0)
+			return;
+		if (connect_deferred(sk2) < 0)
+			return;
+	}
+
+	io = g_io_channel_unix_new(sk1);
+	g_io_channel_set_close_on_unref(io, TRUE);
+	data->io_id[0] = g_io_add_watch(io, G_IO_OUT, iso_connect_cb, NULL);
+	g_io_channel_unref(io);
+
+	data->step++;
+
+	io = g_io_channel_unix_new(sk2);
+	g_io_channel_set_close_on_unref(io, TRUE);
+	data->io_id[1] = g_io_add_watch(io, G_IO_OUT, iso_connect2_cb, NULL);
+	g_io_channel_unref(io);
+
+	data->step++;
+
+	tester_print("Connect in progress");
+}
+
 static void test_bcast(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
@@ -1825,6 +1974,25 @@ int main(int argc, char *argv[])
 
 	test_iso("ISO Defer - Success", &defer_16_2_1, setup_powered,
 							test_defer);
+
+	test_iso("ISO Defer Connect - Success", &defer_16_2_1, setup_powered,
+							test_connect);
+
+	test_iso2("ISO Defer Connect2 CIG 0x01 - Success", &defer_1_16_2_1,
+							setup_powered,
+							test_connect2);
+
+	test_iso2("ISO Defer Connect2 Late CIG 0x01 - Success", &defer_1_16_2_1,
+							setup_powered,
+							test_connect2_late);
+
+	test_iso2("ISO Defer Connect2-1 CIG 0x01 - Success", &defer_1_16_2_1,
+							setup_powered,
+							test_connect2_1);
+
+	test_iso("ISO Defer Connect2 Same CIG 0x01 - Success", &defer_1_16_2_1,
+							setup_powered,
+							test_connect2_same);
 
 	test_iso("ISO Defer Send - Success", &connect_16_2_1_defer_send,
 							setup_powered,
