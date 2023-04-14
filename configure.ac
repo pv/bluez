@@ -373,6 +373,17 @@ AC_ARG_ENABLE(testing, AS_HELP_STRING([--enable-testing],
 					[enable_testing=${enableval}])
 AM_CONDITIONAL(TESTING, test "${enable_testing}" = "yes")
 
+AM_CONDITIONAL(TOOLS, test "${enable_tools}" != "no")
+
+have_pipewire=no
+if (test "${enable_tools}" != "no" || test "${enable_test}" != "no"); then
+	PKG_CHECK_MODULES(PIPEWIRE, libpipewire-0.3, have_pipewire=yes,
+        		  have_pipewire=no)
+	AC_SUBST(PIPEWIRE_CFLAGS)
+	AC_SUBST(PIPEWIRE_LIBS)
+fi
+AM_CONDITIONAL(PIPEWIRE, test "${have_pipewire}" = "yes")
+
 AC_ARG_ENABLE(experimental, AS_HELP_STRING([--enable-experimental],
 			[enable experimental tools]),
 					[enable_experimental=${enableval}])
