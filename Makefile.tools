@@ -324,8 +324,8 @@ tools_btgatt_server_LDADD = src/libshared-mainloop.la \
 tools_test_runner_SOURCES = tools/test-runner.c
 if PIPEWIRE
 tools_test_runner_SOURCES += tools/pwutil.c
-tools_test_runner_LDADD = $(PIPEWIRE_LIBS)
-tools_test_runner_CFLAGS = $(PIPEWIRE_CFLAGS)
+tools_test_runner_LDADD = $(AM_LIBS) $(PIPEWIRE_LIBS) src/libshared-glib.la $(GLIB_LIBS)
+tools_test_runner_CFLAGS = $(AM_CFLAGS) $(PIPEWIRE_CFLAGS)
 endif
 
 tools_rctest_LDADD = lib/libbluetooth-internal.la
