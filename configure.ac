@@ -378,9 +378,12 @@ AM_CONDITIONAL(TOOLS, test "${enable_tools}" != "no")
 have_pipewire=no
 if (test "${enable_tools}" != "no" || test "${enable_test}" != "no"); then
 	PKG_CHECK_MODULES(PIPEWIRE, libpipewire-0.3, have_pipewire=yes,
-        		  have_pipewire=no)
+			  have_pipewire=no)
 	AC_SUBST(PIPEWIRE_CFLAGS)
 	AC_SUBST(PIPEWIRE_LIBS)
+fi
+if (test "${have_pipewire}" != "no"); then
+	AC_DEFINE_UNQUOTED(HAVE_PIPEWIRE, 1, [Pipewire enabled])
 fi
 AM_CONDITIONAL(PIPEWIRE, test "${have_pipewire}" = "yes")
 

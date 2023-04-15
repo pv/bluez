@@ -34,6 +34,7 @@
 #include "lib/hci.h"
 #include "lib/hci_lib.h"
 #include "tools/hciattach.h"
+#include "tools/pwutil.h"
 
 #ifndef WAIT_ANY
 #define WAIT_ANY (-1)
@@ -51,6 +52,7 @@ static bool start_dbus_session;
 static bool start_daemon = false;
 static bool start_emulator = false;
 static bool start_monitor = false;
+static bool start_pipewire = false;
 static int num_devs = 0;
 static const char *qemu_binary = NULL;
 static const char *kernel_image = NULL;
@@ -252,13 +254,13 @@ static void start_qemu(void)
 				"acpi=off pci=noacpi noapic quiet ro init=%s "
 				"TESTHOME=%s TESTDBUS=%u TESTDAEMON=%u "
 				"TESTDBUSSESSION=%u XDG_RUNTIME_DIR=/run/user/0 "
-				"TESTAUDIO=%u "
-				"TESTMONITOR=%u TESTEMULATOR=%u TESTDEVS=%d "
-				"TESTAUTO=%u TESTARGS=\'%s\'",
+				"TESTAUDIO=%u TESTMONITOR=%u TESTEMULATOR=%u "
+				"TESTPIPEWIRE=%u TESTDEVS=%d TESTAUTO=%u "
+				"TESTARGS=\'%s\'",
 				initcmd, cwd, start_dbus, start_daemon,
 				start_dbus_session, audio_support,
-				start_monitor, start_emulator, num_devs,
-				run_auto, testargs);
+				start_monitor, start_emulator, start_pipewire,
+				num_devs, run_auto, testargs);
 
 	argv = alloca(sizeof(qemu_argv) +
 				(audio_support ? 4 : 0) +
@@ -808,6 +810,7 @@ static void run_command(char *cmdname, char *home)
 	int serial_fd;
 	pid_t pid, dbus_pid, daemon_pid, monitor_pid, emulator_pid,
 	      dbus_session_pid, udevd_pid;
+	struct pipewire_ctx *pipewire_ctx = NULL;
 
 	if (!home) {
 		perror("Invalid parameter: TESTHOME");
@@ -859,6 +862,9 @@ static void run_command(char *cmdname, char *home)
 		emulator_pid = start_btvirt(home);
 	else
 		emulator_pid = -1;
+
+	if (start_pipewire)
+		pipewire_ctx = pipewire_start("/run/pipewire-0");
 
 start_next:
 	if (run_auto) {
@@ -966,6 +972,9 @@ start_next:
 			udevd_pid = -1;
 		}
 
+		if (pipewire_ctx)
+			pipewire_exited(pipewire_ctx, corpse);
+
 		if (corpse == pid)
 			break;
 	}
@@ -977,6 +986,9 @@ start_next:
 
 	if (daemon_pid > 0)
 		kill(daemon_pid, SIGTERM);
+
+	if (pipewire_ctx)
+		pipewire_stop(pipewire_ctx);
 
 	if (dbus_pid > 0)
 		kill(dbus_pid, SIGTERM);
@@ -1067,6 +1079,12 @@ static void run_tests(void)
 		start_monitor = true;
 	}
 
+	ptr = strstr(cmdline, "TESTPIPEWIRE=1");
+	if (ptr) {
+		printf("Pipewire requested\n");
+		start_pipewire = true;
+	}
+
 	ptr = strstr(cmdline, "TESTEMULATOR=1");
 	if (ptr) {
 		printf("Emulator requested\n");
@@ -1106,6 +1124,7 @@ static void usage(void)
 		"\t-q, --qemu <path>      QEMU binary\n"
 		"\t-k, --kernel <image>   Kernel image (bzImage)\n"
 		"\t-A, --audio            Add audio support\n"
+		"\t-P, --pipewire         Run pipewire daemons\n"
 		"\t-h, --help             Show help options\n");
 }
 
@@ -1121,6 +1140,7 @@ static const struct option main_options[] = {
 	{ "qemu",    required_argument, NULL, 'q' },
 	{ "kernel",  required_argument, NULL, 'k' },
 	{ "audio",   no_argument,       NULL, 'A' },
+	{ "pipewire", no_argument,      NULL, 'P' },
 	{ "version", no_argument,       NULL, 'v' },
 	{ "help",    no_argument,       NULL, 'h' },
 	{ }
@@ -1176,6 +1196,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'A':
 			audio_support = true;
+			break;
+		case 'P':
+			start_pipewire = true;
 			break;
 		case 'v':
 			printf("%s\n", VERSION);
