@@ -2403,6 +2403,15 @@ int main(int argc, char *argv[])
 							setup_powered,
 							test_connect2_seq);
 
+	test_iso2("ISO AC 1 + 2 Simult - Success", &connect_ac_1_2,
+							setup_powered,
+							test_connect2);
+
+	test_iso2("ISO AC 1 + 2 0x01/0x02 Simult - Success",
+							&connect_ac_1_2_cig_1_2,
+							setup_powered,
+							test_connect2);
+
 	test_iso("ISO Broadcaster - Success", &bcast_16_2_1_send, setup_powered,
 							test_bcast);
 	test_iso("ISO Broadcaster Encrypted - Success", &bcast_enc_16_2_1_send,
