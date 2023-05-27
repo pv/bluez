@@ -1898,6 +1898,27 @@ static void test_reconnect(const void *test_data)
 	setup_reconnect(data, 0, iso_connect_cb);
 }
 
+static gboolean iso_reconnect_nowait_cb(GIOChannel *io, GIOCondition cond,
+							gpointer user_data)
+{
+	struct test_data *data = tester_get_data();
+
+	data->io_id[0] = 0;
+
+	iso_connect(io, cond, user_data);
+	g_io_channel_shutdown(io, FALSE, NULL);
+	setup_connect(data, 0, iso_connect_cb);
+
+	return FALSE;
+}
+
+static void test_reconnect_nowait(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+
+	setup_connect(data, 0, iso_reconnect_nowait_cb);
+}
+
 static void test_defer(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
@@ -2312,6 +2333,13 @@ int main(int argc, char *argv[])
 
 	test_iso_rej("ISO Connect - Reject", &connect_reject, setup_powered,
 			test_connect, BT_HCI_ERR_CONN_FAILED_TO_ESTABLISH);
+
+	test_iso("ISO Reconnect - Success", &connect_16_2_1, setup_powered,
+							test_reconnect);
+
+	test_iso("ISO Reconnect No Wait - Success", &connect_16_2_1,
+							setup_powered,
+							test_reconnect_nowait);
 
 	test_iso("ISO Send - Success", &connect_16_2_1_send, setup_powered,
 							test_connect);
