@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8; mode: python; eval: (blacken-mode); -*-
+"""
+test-runner-ee [options] -- <runner-args>
+
+Automated end-to-end test execution utility.
+"""
+import sys
+import os
+import time
+import shlex
+import argparse
+from subprocess import Popen, DEVNULL, STDOUT, TimeoutExpired
+
+
+BASEDIR = None
+LOG = None
+JOBS = []
+
+
+def start_runners(args, unix):
+    exe = os.path.join(BASEDIR, "tools", "test-runner")
+
+    if len(unix) == 1:
+        unix1 = unix2 = unix[0]
+    else:
+        unix1, unix2 = unix
+
+    cmd1 = [exe, "-u" + unix1] + list(args) + ["server"]
+    cmd2 = [exe, "-u" + unix2] + list(args) + ["client"]
+
+    print("Starting server: {}".format(quoted(cmd1)), file=sys.stderr)
+    print("Starting client: {}".format(quoted(cmd2)), file=sys.stderr)
+
+    server = Popen(cmd1, stdout=LOG, stderr=STDOUT, stdin=DEVNULL)
+    JOBS.append(server)
+
+    # btvirt fails with simultaneous access
+    time.sleep(1)
+
+    client = Popen(cmd2)
+    JOBS.append(client)
+
+    return [server, client]
+
+
+def start_btvirt():
+    exe = os.path.join(BASEDIR, "emulator", "btvirt")
+    job = Popen([exe, "-s"], stdout=LOG, stderr=STDOUT, stdin=DEVNULL)
+    JOBS.append(job)
+
+    socket = "/tmp/bt-server-bredrle"
+    wait_files([job], [socket])
+    return [socket]
+
+
+def start_btproxy():
+    exe = os.path.join(BASEDIR, "tools", "btproxy")
+
+    job1 = Popen(
+        [exe, "-i", "0", "-u/tmp/bt-server-0"],
+        stdout=LOG,
+        stderr=STDOUT,
+        stdin=DEVNULL,
+    )
+    JOBS.append(job1)
+    job2 = Popen(
+        [exe, "-i", "1", "-u/tmp/bt-server-1"],
+        stdout=LOG,
+        stderr=STDOUT,
+        stdin=DEVNULL,
+    )
+    JOBS.append(job2)
+
+    sockets = ["/tmp/bt-server-0", "/tmp/bt-server-1"]
+    wait_files([job1, job2], sockets)
+    return sockets
+
+
+def wait_files(jobs, paths, timeout=2):
+    start = time.time()
+
+    for path in paths:
+        while True:
+            if time.time() > start + timeout:
+                raise RuntimeError("Job timed out")
+            for job in jobs:
+                if job.poll() is not None:
+                    raise RuntimeError("Process exited unexpectedly")
+            try:
+                if os.stat(path):
+                    break
+            except OSError:
+                time.sleep(0.25)
+
+
+def quoted(args):
+    return " ".join(shlex.quote(arg) for arg in args)
+
+
+def main():
+    p = argparse.ArgumentParser(usage=__doc__.strip())
+    p.add_argument("-r", "--redirect", action="store_true")
+    p.add_argument("-u", "--unix", action="append", default=[])
+
+    argv = []
+    runner_args = list(sys.argv[1:])
+    while runner_args:
+        arg = runner_args.pop(0)
+        if arg == "--":
+            break
+        else:
+            argv.append(arg)
+
+    args = p.parse_args(argv)
+
+    if not runner_args:
+        p.error("No runner arguments")
+    if args.unix and args.redirect:
+        p.error("--unix and --redirect cannot be used at the same time")
+
+    ret = []
+    try:
+        if args.unix:
+            unix = args.unix
+        elif args.redirect:
+            unix = start_btproxy()
+        else:
+            unix = start_btvirt()
+
+        runners = start_runners(runner_args, unix=unix)
+        for runner in runners:
+            ret.append(runner.wait())
+    finally:
+        while JOBS:
+            job = JOBS.pop()
+            if job.poll() is not None:
+                continue
+            job.terminate()
+            job.wait()
+
+    return 1 if any(ret) else 0
+
+
+if __name__ == "__main__":
+    BASEDIR = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), ".."))
+    try:
+        LOG = open("/tmp/test-runner-ee.log", "w")
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        LOG.close()
