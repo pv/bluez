@@ -6212,16 +6212,37 @@ int bt_bap_select(struct bt_bap *bap,
 	return 0;
 }
 
-void bt_bap_cancel_select(struct bt_bap_pac *lpac, bt_bap_pac_select_t func,
-								void *user_data)
+void bt_bap_cancel(struct bt_bap_pac *lpac, void *func, void *user_data)
 {
 	if (!lpac || !func)
 		return;
 
-	if (!lpac->ops || !lpac->ops->cancel_select)
+	if (!lpac->ops || !lpac->ops->cancel)
 		return;
 
-	lpac->ops->cancel_select(lpac, func, user_data, lpac->user_data);
+	lpac->ops->cancel(lpac, func, user_data, lpac->user_data);
+}
+
+int bt_bap_stream_select_qos(struct bt_bap_stream *stream,
+				bt_bap_pac_select_qos_t func, void *user_data)
+{
+	struct bt_bap_pac *lpac, *rpac;
+
+	if (!stream || !func)
+		return -EINVAL;
+
+	lpac = stream->lpac;
+	rpac = stream->rpac;
+	if (!lpac || !rpac)
+		return -EINVAL;
+
+	if (!lpac->ops || !lpac->ops->select_qos)
+		return -EOPNOTSUPP;
+
+	lpac->ops->select_qos(stream, &rpac->qos, func, user_data,
+							lpac->user_data);
+
+	return 0;
 }
 
 static struct bt_bap_stream *bap_bcast_stream_new(struct bt_bap *bap,
@@ -6604,6 +6625,16 @@ uint32_t bt_bap_stream_get_location(struct bt_bap_stream *stream)
 		return 0x00000000;
 
 	return stream->ops->get_loc(stream);
+}
+
+struct bt_bap_pac *bt_bap_stream_get_lpac(struct bt_bap_stream *stream)
+{
+	return stream->lpac;
+}
+
+struct bt_bap_pac *bt_bap_stream_get_rpac(struct bt_bap_stream *stream)
+{
+	return stream->rpac;
 }
 
 struct iovec *bt_bap_stream_get_config(struct bt_bap_stream *stream)
