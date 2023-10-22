@@ -72,9 +72,11 @@ struct bap_ep {
 	unsigned int io_id;
 	bool recreate;
 	bool cig_active;
+	bool selecting_qos;
 	struct iovec *caps;
 	struct iovec *metadata;
 	struct bt_bap_qos qos;
+	bool have_qos;
 	unsigned int id;
 	DBusMessage *msg;
 	struct iovec *base;
@@ -102,6 +104,8 @@ static struct queue *sessions;
 static int ep_bap_config(struct bap_ep *ep);
 static void bap_create_io(struct bap_data *data, struct bap_ep *ep,
 				struct bt_bap_stream *stream, int defer);
+static struct bap_ep *bap_find_ep_by_stream(struct bap_data *data,
+				struct bt_bap_stream *stream);
 
 static bool bap_data_set_user_data(struct bap_data *data, void *user_data)
 {
@@ -729,23 +733,17 @@ fail:
 	return -EINVAL;
 }
 
-static void qos_cb(struct bt_bap_stream *stream, uint8_t code, uint8_t reason,
-					void *user_data)
+static void ep_reply_msg(struct bap_ep *ep, const char *error)
 {
-	struct bap_ep *ep = user_data;
 	DBusMessage *reply;
-
-	DBG("stream %p code 0x%02x reason 0x%02x", stream, code, reason);
-
-	ep->id = 0;
 
 	if (!ep->msg)
 		return;
 
-	if (!code)
+	if (!error)
 		reply = dbus_message_new_method_return(ep->msg);
 	else
-		reply = btd_error_failed(ep->msg, "Unable to configure");
+		reply = btd_error_failed(ep->msg, error);
 
 	g_dbus_send_message(btd_get_dbus_connection(), reply);
 
@@ -753,28 +751,30 @@ static void qos_cb(struct bt_bap_stream *stream, uint8_t code, uint8_t reason,
 	ep->msg = NULL;
 }
 
-static void config_cb(struct bt_bap_stream *stream,
-					uint8_t code, uint8_t reason,
+static void qos_cb(struct bt_bap_stream *stream, uint8_t code, uint8_t reason,
 					void *user_data)
 {
 	struct bap_ep *ep = user_data;
-	DBusMessage *reply;
 
 	DBG("stream %p code 0x%02x reason 0x%02x", stream, code, reason);
 
 	ep->id = 0;
 
-	if (!code)
-		return;
+	ep_reply_msg(ep, code ? "Unable to configure" : NULL);
+}
 
-	if (!ep->msg)
-		return;
+static void config_cb(struct bt_bap_stream *stream,
+					uint8_t code, uint8_t reason,
+					void *user_data)
+{
+	struct bap_ep *ep = user_data;
 
-	reply = btd_error_failed(ep->msg, "Unable to configure");
-	g_dbus_send_message(btd_get_dbus_connection(), reply);
+	DBG("stream %p code 0x%02x reason 0x%02x", stream, code, reason);
 
-	dbus_message_unref(ep->msg);
-	ep->msg = NULL;
+	ep->id = 0;
+
+	if (code)
+		ep_reply_msg(ep, "Unable to configure");
 }
 
 static void bap_io_close(struct bap_ep *ep)
@@ -1165,6 +1165,93 @@ static struct bap_ep *ep_register(struct btd_service *service,
 	return ep;
 }
 
+static bool match_stream_ep_waiting_qos(const void *item, const void *user_data)
+{
+	struct bap_data *data = (struct bap_data *)user_data;
+	struct bt_bap_stream *stream = (struct bt_bap_stream *)item;
+	struct bap_ep *ep;
+
+	ep = bap_find_ep_by_stream(data, stream);
+	if (!ep)
+		return false;
+
+	return !ep->have_qos;
+}
+
+static void do_stream_qos(void *item, void *user_data)
+{
+	struct bap_data *data = user_data;
+	struct bt_bap_stream *stream = item;
+	struct bap_ep *ep;
+
+	ep = bap_find_ep_by_stream(data, stream);
+	if (!ep)
+		return;
+	if (ep->id || !ep->have_qos)
+		goto fail;
+
+	DBG("stream %p ep %p do qos", stream, ep);
+
+	bap_create_io(ep->data, ep, stream, true);
+	if (!ep->io) {
+		error("Unable to create io");
+		goto fail;
+	}
+
+	ep->id = bt_bap_stream_qos(stream, &ep->qos, qos_cb, ep);
+	if (!ep->id)
+		goto fail;
+
+	return;
+
+fail:
+	error("Failed to Configure QoS");
+	ep_reply_msg(ep, "Unable to configure");
+}
+
+static void select_qos_cb(struct bt_bap_stream *stream, int err,
+					struct bt_bap_qos *qos, void *user_data)
+{
+	struct bap_ep *ep = user_data;
+	struct queue *links;
+
+	DBG("stream %p err %d qos %p", stream, err, qos);
+
+	ep->selecting_qos = false;
+
+	if (err)
+		goto fail;
+
+	ep->have_qos = true;
+
+	if (qos) {
+		/* Don't update CIG/CIS, because linking of streams has
+		 * already been decided at this point.
+		 */
+		ep->qos.ucast.framing = qos->ucast.framing;
+		ep->qos.ucast.delay = qos->ucast.delay;
+		ep->qos.ucast.target_latency = qos->ucast.target_latency;
+		ep->qos.ucast.io_qos = qos->ucast.io_qos;
+
+		bt_bap_stream_config_update(stream, &ep->qos);
+	}
+
+	/* Wait for linked streams to complete QoS select */
+	links = bt_bap_stream_io_get_links(stream);
+	if (queue_find(links, match_stream_ep_waiting_qos, ep->data)) {
+		DBG("stream %p wait for linked qos", stream);
+		return;
+	}
+
+	do_stream_qos(stream, ep->data);
+	queue_foreach(links, do_stream_qos, ep->data);
+	return;
+
+fail:
+	error("Failed to Configure QoS");
+	ep_reply_msg(ep, "Unable to configure");
+}
+
 static int ep_bap_qos(struct bap_ep *ep)
 {
 	struct bap_data *data = ep->data;
@@ -1175,18 +1262,20 @@ static int ep_bap_qos(struct bap_ep *ep)
 	if (!stream || !ep->caps)
 		return -EINVAL;
 
-	bap_create_io(data, ep, stream, true);
-	if (!ep->io) {
-		error("Unable to create io");
-		goto error;
-	}
-
 	switch (bt_bap_stream_get_type(stream)) {
 	case BT_BAP_STREAM_TYPE_UCAST:
-		/* Wait QoS response to respond */
-		ep->id = bt_bap_stream_qos(stream, &ep->qos, qos_cb, ep);
-		if (!ep->id) {
+		if (ep->selecting_qos)
+			return -EBUSY;
+		if (bt_bap_stream_select_qos(stream, select_qos_cb, ep)) {
 			error("Failed to Configure QoS");
+			goto error;
+		}
+		ep->selecting_qos = true;
+		break;
+	case BT_BAP_STREAM_TYPE_BCAST:
+		bap_create_io(data, ep, stream, true);
+		if (!ep->io) {
+			error("Unable to create io");
 			goto error;
 		}
 		break;
@@ -1206,6 +1295,7 @@ static void ep_clear_config(struct bap_ep *ep)
 	util_iov_free(ep->metadata, 1);
 	ep->metadata = NULL;
 	memset(&ep->qos, 0, sizeof(ep->qos));
+	ep->have_qos = false;
 }
 
 static int ep_bap_config(struct bap_ep *ep)
@@ -1218,6 +1308,8 @@ static int ep_bap_config(struct bap_ep *ep)
 		return -EINVAL;
 	if (ep->id)
 		return -EBUSY;
+
+	ep->have_qos = false;
 
 	/* TODO: Check if stream capabilities match add support for Latency
 	 * and PHY.
@@ -1261,7 +1353,7 @@ static void bap_config(void *data, void *user_data)
 	ep_bap_config(data);
 }
 
-static void select_cb(struct bt_bap_pac *pac, int err, struct iovec *caps,
+static void select_codec_cb(struct bt_bap_pac *pac, int err, struct iovec *caps,
 				struct iovec *metadata, struct bt_bap_qos *qos,
 				void *user_data)
 {
@@ -1311,7 +1403,7 @@ static bool pac_found(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
 
 	/* TODO: Cache LRU? */
 	if (btd_service_is_initiator(service)) {
-		if (!bt_bap_select(lpac, rpac, select_cb, ep))
+		if (!bt_bap_select_codec(lpac, rpac, select_codec_cb, ep))
 			ep->data->selecting++;
 	}
 
