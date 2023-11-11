@@ -89,8 +89,10 @@ struct bap_setup {
 	bool cis_active;
 	uint8_t sid;
 	bool config_pending;
+	bool qos_pending;
 	bool readying;
 	bool closing;
+	bool have_qos;
 	struct iovec *caps;
 	struct iovec *metadata;
 	unsigned int id;
@@ -921,6 +923,39 @@ static void config_cb(struct bt_bap_stream *stream,
 	bap_update_cigs(setup->ep->data);
 }
 
+static void select_qos_cb(struct bt_bap_stream *stream, int err,
+					struct bt_bap_qos *qos, void *user_data)
+{
+	struct bap_setup *setup = user_data;
+	struct bap_ep *ep = setup->ep;
+	struct queue *links;
+
+	DBG("stream %p err %d qos %p", stream, err, qos);
+
+	setup->id = 0;
+	setup->qos_pending = false;
+
+	if (err) {
+		setup_ready(setup, err, 0);
+		goto done;
+	}
+
+	setup->have_qos = true;
+
+	if (qos) {
+		/* Don't update CIG/CIS, because linking of streams has
+		 * already been decided at this point.
+		 */
+		setup->qos.ucast.framing = qos->ucast.framing;
+		setup->qos.ucast.delay = qos->ucast.delay;
+		setup->qos.ucast.target_latency = qos->ucast.target_latency;
+		setup->qos.ucast.io_qos = qos->ucast.io_qos;
+	}
+
+done:
+	bap_update_cigs(setup->ep->data);
+}
+
 static void setup_io_close(void *data, void *user_data)
 {
 	struct bap_setup *setup = data;
@@ -1096,6 +1131,9 @@ static void setup_free(void *data)
 	setup->closing = true;
 
 	setup_ready(setup, -ECANCELED, 0);
+
+	bt_bap_cancel(bt_bap_stream_get_lpac(setup->stream), setup_qos_cb,
+									setup);
 
 	if (closing && setup->close_cb)
 		setup->close_cb(setup, setup->close_cb_data);
@@ -1852,6 +1890,8 @@ static int setup_config(struct bap_setup *setup, bap_setup_ready_func_t cb,
 	DBG("setup %p caps %p metadata %p", setup, setup->caps,
 						setup->metadata);
 
+	setup->have_qos = false;
+
 	/* TODO: Check if stream capabilities match add support for Latency
 	 * and PHY.
 	 */
@@ -2085,7 +2125,7 @@ static bool pac_cancel_select(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
 {
 	struct bap_ep *ep = user_data;
 
-	bt_bap_cancel_select(lpac, select_cb, ep);
+	bt_bap_cancel(lpac, select_cb, ep);
 
 	return true;
 }
@@ -2385,7 +2425,7 @@ static bool find_cig_busy_setup(const void *data, const void *match_data)
 		return false;
 
 	return setup->cis_active || setup->closing ||
-		setup->config_pending || setup->id;
+		setup->config_pending || setup->qos_pending || setup->id;
 }
 
 static bool find_cig_enumerate_setup(const void *data, const void *match_data)
@@ -2511,6 +2551,38 @@ static void update_cig_setup_io(void *data, void *match_data)
 	info->count++;
 }
 
+static void update_cig_setup_select_qos(void *data, void *match_data)
+{
+	struct bap_setup *setup = data;
+	struct update_cig_data *info = match_data;
+	struct bt_bap_stream *stream = setup->stream;
+	int err;
+	struct bt_bap_qos *qos = bt_bap_stream_get_qos(stream);
+
+	if (qos && qos->ucast.cig_id != info->cig)
+		return;
+	if (setup->have_qos || setup->qos_pending || !stream ||
+						setup->closing || setup->id)
+		return;
+	if (bt_bap_stream_get_state(stream) != BT_BAP_STREAM_STATE_CONFIG)
+		return;
+
+	DBG("%p", setup);
+
+	err = bt_bap_stream_select_qos(stream, select_qos_cb, setup);
+	if (err == -EOPNOTSUPP) {
+		setup->have_qos = true;
+		return;
+	}
+
+	if (err) {
+		setup_ready(setup, err, 0);
+	} else {
+		setup->qos_pending = true;
+		info->count++;
+	}
+}
+
 static void update_cig_setup_qos(void *data, void *match_data)
 {
 	struct bap_setup *setup = data;
@@ -2521,7 +2593,7 @@ static void update_cig_setup_qos(void *data, void *match_data)
 
 	if (qos && qos->ucast.cig_id != info->cig)
 		return;
-	if (!setup->want_qos || !stream || setup->closing)
+	if (!setup->want_qos || !setup->have_qos || !stream || setup->closing)
 		return;
 	if (bt_bap_stream_get_state(stream) != BT_BAP_STREAM_STATE_CONFIG)
 		return;
@@ -2568,6 +2640,10 @@ static void bap_update_cig(void *item, void *user_data)
 	info.cig = cig;
 
 	DBG("adapter %p CIG 0x%x", info.adapter, info.cig);
+
+	/* Do Select QoS, can be done at any time as needed */
+	info.func = update_cig_setup_select_qos;
+	queue_foreach(sessions, update_cig_check_session, &info);
 
 	/* Do stream QoS & IO re-creation only when CIG is no longer
 	 * busy and all pending Config/QoS requests have completed.
@@ -2950,6 +3026,7 @@ static void bap_state(struct bt_bap_stream *stream, uint8_t old_state,
 	case BT_BAP_STREAM_STATE_CONFIG:
 		if (setup) {
 			setup->config_pending = false;
+			setup->have_qos = false;
 			setup->want_qos = true;
 			bap_update_cigs(setup->ep->data);
 		}
@@ -2957,6 +3034,7 @@ static void bap_state(struct bt_bap_stream *stream, uint8_t old_state,
 	case BT_BAP_STREAM_STATE_QOS:
 		if (setup) {
 			setup->want_qos = false;
+			setup->have_qos = true;
 			setup->want_io = true;
 			setup_ready(setup, 0, 0);
 			bap_update_cigs(setup->ep->data);
