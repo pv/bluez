@@ -290,7 +290,8 @@ static const struct sco_client_data connect_send_tx_timestamping = {
 	.send_data = data,
 	.so_timestamping = (SOF_TIMESTAMPING_SOFTWARE |
 					SOF_TIMESTAMPING_OPT_ID |
-					SOF_TIMESTAMPING_TX_SOFTWARE),
+					SOF_TIMESTAMPING_TX_SOFTWARE |
+					SOF_TIMESTAMPING_TX_COMPLETION),
 	.repeat_send = 2,
 };
 
@@ -637,10 +638,10 @@ static gboolean recv_errqueue(GIOChannel *io, GIOCondition cond,
 	err = tx_tstamp_recv(&data->tx_ts, sk, scodata->data_len);
 	if (err > 0)
 		return TRUE;
-	else if (!err && !data->step)
-		tester_test_passed();
-	else
+	else if (err)
 		tester_test_failed();
+	else if (!data->step)
+		tester_test_passed();
 
 	data->err_io_id = 0;
 	return FALSE;
@@ -654,7 +655,7 @@ static void sco_tx_timestamping(struct test_data *data, GIOChannel *io)
 	int err;
 	unsigned int count;
 
-	if (!(scodata->so_timestamping & SOF_TIMESTAMPING_TX_RECORD_MASK))
+	if (!(scodata->so_timestamping & TS_TX_RECORD_MASK))
 		return;
 
 	sk = g_io_channel_unix_get_fd(io);
