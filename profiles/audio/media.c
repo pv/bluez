@@ -93,6 +93,7 @@ struct media_endpoint {
 	char			*sender;	/* Endpoint DBus bus id */
 	char			*path;		/* Endpoint object path */
 	char			*uuid;		/* Endpoint property UUID */
+	uint8_t			role;		/* Endpoint role (BAP ucast) */
 	uint8_t			codec;		/* Endpoint codec */
 	uint16_t                cid;            /* Endpoint company ID */
 	uint16_t                vid;            /* Endpoint vendor codec ID */
@@ -1272,6 +1273,19 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		return false;
 	}
 
+	switch (endpoint->role) {
+	case 0:
+		endpoint->role = BT_BAP_ROLE_BOTH;
+		break;
+	case BT_BAP_ROLE_CLIENT:
+	case BT_BAP_ROLE_SERVER:
+	case BT_BAP_ROLE_BOTH:
+		break;
+	default:
+		error("Invalid endpoint Role 0x%02x", endpoint->role);
+		return false;
+	}
+
 	db = btd_gatt_database_get_db(database);
 
 	data.iov_base = endpoint->capabilities;
@@ -1291,9 +1305,9 @@ static bool endpoint_init_pac(struct media_endpoint *endpoint, uint8_t type,
 		metadata->iov_len = endpoint->metadata_size;
 	}
 
-	endpoint->pac = bt_bap_add_vendor_pac(db, name, type, endpoint->codec,
-				endpoint->cid, endpoint->vid, &endpoint->qos,
-				&data, metadata);
+	endpoint->pac = bt_bap_add_vendor_pac(db, name, type, endpoint->role,
+				endpoint->codec, endpoint->cid, endpoint->vid,
+				&endpoint->qos, &data, metadata);
 	if (!endpoint->pac) {
 		error("Unable to create PAC");
 		free(name);
@@ -1494,6 +1508,7 @@ media_endpoint_create(struct media_adapter *adapter,
 						const char *sender,
 						const char *path,
 						const char *uuid,
+						uint8_t role,
 						gboolean delay_reporting,
 						uint8_t codec,
 						uint16_t cid,
@@ -1514,6 +1529,7 @@ media_endpoint_create(struct media_adapter *adapter,
 	endpoint->sender = g_strdup(sender);
 	endpoint->path = g_strdup(path);
 	endpoint->uuid = g_strdup(uuid);
+	endpoint->role = role;
 	endpoint->codec = codec;
 	endpoint->cid = cid;
 	endpoint->vid = vid;
@@ -1579,8 +1595,8 @@ struct vendor {
 } __packed;
 
 static int parse_properties(DBusMessageIter *props, const char **uuid,
-				gboolean *delay_reporting, uint8_t *codec,
-				uint16_t *cid, uint16_t *vid,
+				uint8_t *role, gboolean *delay_reporting,
+				uint8_t *codec, uint16_t *cid, uint16_t *vid,
 				struct bt_bap_pac_qos *qos,
 				uint8_t **capabilities, int *size,
 				uint8_t **metadata, int *metadata_size)
@@ -1606,6 +1622,10 @@ static int parse_properties(DBusMessageIter *props, const char **uuid,
 				return -EINVAL;
 			dbus_message_iter_get_basic(&value, uuid);
 			has_uuid = TRUE;
+		} else if (strcasecmp(key, "Role") == 0) {
+			if (var != DBUS_TYPE_BYTE)
+				return -EINVAL;
+			dbus_message_iter_get_basic(&value, role);
 		} else if (strcasecmp(key, "Codec") == 0) {
 			if (var != DBUS_TYPE_BYTE)
 				return -EINVAL;
@@ -1696,6 +1716,7 @@ static DBusMessage *register_endpoint(DBusConnection *conn, DBusMessage *msg,
 	const char *sender, *path, *uuid;
 	gboolean delay_reporting = FALSE;
 	uint8_t codec = 0;
+	uint8_t role = 0;
 	uint16_t cid = 0;
 	uint16_t vid = 0;
 	struct bt_bap_pac_qos qos = {};
@@ -1719,12 +1740,13 @@ static DBusMessage *register_endpoint(DBusConnection *conn, DBusMessage *msg,
 	if (dbus_message_iter_get_arg_type(&props) != DBUS_TYPE_DICT_ENTRY)
 		return btd_error_invalid_args(msg);
 
-	if (parse_properties(&props, &uuid, &delay_reporting, &codec, &cid,
-			&vid, &qos, &capabilities, &size, &metadata,
+	if (parse_properties(&props, &uuid, &role, &delay_reporting, &codec,
+			&cid, &vid, &qos, &capabilities, &size, &metadata,
 			&metadata_size) < 0)
 		return btd_error_invalid_args(msg);
 
-	if (media_endpoint_create(adapter, sender, path, uuid, delay_reporting,
+	if (media_endpoint_create(adapter, sender, path, uuid, role,
+					delay_reporting,
 					codec, cid, vid, &qos, capabilities,
 					size, metadata, metadata_size,
 					&err) == NULL) {
@@ -2751,6 +2773,7 @@ static void app_register_endpoint(void *data, void *user_data)
 	const char *iface = g_dbus_proxy_get_interface(proxy);
 	const char *path = g_dbus_proxy_get_path(proxy);
 	const char *uuid;
+	uint8_t role = 0;
 	gboolean delay_reporting = FALSE;
 	uint8_t codec;
 	struct vendor vendor;
@@ -2776,6 +2799,13 @@ static void app_register_endpoint(void *data, void *user_data)
 		goto fail;
 
 	dbus_message_iter_get_basic(&iter, &uuid);
+
+	if (g_dbus_proxy_get_property(proxy, "Role", &iter)) {
+		if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BYTE)
+			goto fail;
+
+		dbus_message_iter_get_basic(&iter, &role);
+	}
 
 	if (!g_dbus_proxy_get_property(proxy, "Codec", &iter))
 		goto fail;
@@ -2892,7 +2922,7 @@ static void app_register_endpoint(void *data, void *user_data)
 	}
 
 	endpoint = media_endpoint_create(app->adapter, app->sender, path, uuid,
-						delay_reporting, codec,
+						role, delay_reporting, codec,
 						vendor.cid, vendor.vid, &qos,
 						capabilities, size,
 						metadata, metadata_size,

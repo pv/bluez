@@ -263,6 +263,22 @@ static gboolean get_uuid(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean get_role(const GDBusPropertyTable *property,
+				       DBusMessageIter *iter, void *data)
+{
+	uint8_t role = BT_BAP_ROLE_SERVER;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE, &role);
+	return TRUE;
+}
+
+static gboolean has_role(const GDBusPropertyTable *property, void *data)
+{
+	struct bap_ep *ep = data;
+
+	return bt_bap_pac_get_type(ep->lpac) & (BT_BAP_SINK | BT_BAP_SOURCE);
+}
+
 static gboolean get_codec(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -452,6 +468,8 @@ static gboolean get_qos(const GDBusPropertyTable *property,
 
 static const GDBusPropertyTable ep_properties[] = {
 	{ "UUID", "s", get_uuid, NULL, NULL,
+					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "Role", "y", get_role, NULL, has_role,
 					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
 	{ "Codec", "y", get_codec, NULL, NULL,
 					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
