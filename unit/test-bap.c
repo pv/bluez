@@ -464,13 +464,16 @@ static void test_client_config(struct test_data *data)
 		if (data->cfg->vs)
 			data->snk = bt_bap_add_vendor_pac(data->db,
 							"test-bap-snk",
-							BT_BAP_SINK, 0x0ff,
-							0x0001, 0x0001,
+							BT_BAP_SINK,
+							BT_BAP_ROLE_CLIENT,
+							0x0ff, 0x0001, 0x0001,
 							NULL, data->caps, NULL);
 		else
 			data->snk = bt_bap_add_pac(data->db, "test-bap-snk",
-							BT_BAP_SINK, LC3_ID,
-							NULL, data->caps, NULL);
+							BT_BAP_SINK,
+							BT_BAP_ROLE_CLIENT,
+							LC3_ID, NULL,
+							data->caps, NULL);
 		g_assert(data->snk);
 	}
 
@@ -478,13 +481,16 @@ static void test_client_config(struct test_data *data)
 		if (data->cfg->vs)
 			data->src = bt_bap_add_vendor_pac(data->db,
 							"test-bap-src",
-							BT_BAP_SOURCE, 0x0ff,
-							0x0001, 0x0001,
+							BT_BAP_SOURCE,
+							BT_BAP_ROLE_CLIENT,
+							0x0ff, 0x0001, 0x0001,
 							NULL, data->caps, NULL);
 		else
 			data->src = bt_bap_add_pac(data->db, "test-bap-src",
-							BT_BAP_SOURCE, LC3_ID,
-							NULL, data->caps, NULL);
+							BT_BAP_SOURCE,
+							BT_BAP_ROLE_CLIENT,
+							LC3_ID, NULL,
+							data->caps, NULL);
 		g_assert(data->src);
 	}
 }
@@ -636,13 +642,13 @@ static void test_bcast_config(struct test_data *data)
 		if (data->cfg->vs)
 			data->bsrc = bt_bap_add_vendor_pac(data->db,
 							"test-bap-bsrc",
-							BT_BAP_BCAST_SOURCE,
+							BT_BAP_BCAST_SOURCE, 0,
 							0x0ff, 0x0000, 0x0000,
 							NULL, data->caps,
 							NULL);
 		else
 			data->bsrc = bt_bap_add_pac(data->db, "test-bap-bsrc",
-							BT_BAP_BCAST_SOURCE,
+							BT_BAP_BCAST_SOURCE, 0,
 							LC3_ID,
 							NULL, data->caps,
 							NULL);
@@ -657,13 +663,13 @@ static void test_bcast_config(struct test_data *data)
 		if (data->cfg->vs)
 			data->bsnk = bt_bap_add_vendor_pac(data->db,
 							"test-bap-bsnk",
-							BT_BAP_BCAST_SINK,
+							BT_BAP_BCAST_SINK, 0,
 							0xff, 0x0000, 0x0000,
 							NULL, data->caps,
 							NULL);
 		else
 			data->bsnk = bt_bap_add_pac(data->db, "test-bap-bsnk",
-							BT_BAP_BCAST_SINK,
+							BT_BAP_BCAST_SINK, 0,
 							LC3_ID,
 							NULL, data->caps,
 							NULL);

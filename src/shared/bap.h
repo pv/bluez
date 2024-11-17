@@ -61,13 +61,14 @@ struct bt_bap_pac_qos {
 
 struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
 					const char *name, uint8_t type,
+					uint8_t role,
 					uint8_t id, uint16_t cid, uint16_t vid,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata);
 
 struct bt_bap_pac *bt_bap_add_pac(struct gatt_db *db, const char *name,
-					uint8_t type, uint8_t id,
+					uint8_t type, uint8_t role, uint8_t id,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata);

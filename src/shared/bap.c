@@ -196,6 +196,7 @@ struct bt_bap_pac {
 	struct bt_bap_db *bdb;
 	char *name;
 	uint8_t type;
+	uint8_t role;
 	struct bt_bap_codec codec;
 	struct bt_bap_pac_qos qos;
 	struct iovec *data;
@@ -411,6 +412,9 @@ static void pac_foreach(void *data, void *user_data)
 	struct bt_pacs_read_rsp *rsp;
 	struct bt_pac *p;
 	struct bt_pac_metadata *meta;
+
+	if (!(pac->role & BT_BAP_ROLE_SERVER))
+		return;
 
 	if (!iov->iov_len) {
 		rsp = util_iov_push(iov, sizeof(*rsp));
@@ -2103,6 +2107,8 @@ static unsigned int bap_ucast_get_location(struct bt_bap_stream *stream)
 	if (!stream)
 		return 0x00000000;
 
+	/* TODO: this should return the channel allocation */
+
 	pacs = stream->client ? stream->bap->rdb->pacs : stream->bap->ldb->pacs;
 
 	if (stream->ep->dir == BT_BAP_SOURCE)
@@ -2873,6 +2879,9 @@ static uint8_t ep_config(struct bt_bap_endpoint *ep, struct bt_bap *bap,
 
 	for (; e; e = e->next) {
 		struct bt_bap_pac *pac = e->data;
+
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			continue;
 
 		if (!bap_codec_equal(&req->codec, &pac->codec))
 			continue;
@@ -3653,7 +3662,7 @@ static void bap_pac_merge(struct bt_bap_pac *pac, struct iovec *data,
 }
 
 static struct bt_bap_pac *bap_pac_new(struct bt_bap_db *bdb, const char *name,
-					uint8_t type,
+					uint8_t type, uint8_t role,
 					struct bt_bap_codec *codec,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
@@ -3665,6 +3674,7 @@ static struct bt_bap_pac *bap_pac_new(struct bt_bap_db *bdb, const char *name,
 	pac->bdb = bdb;
 	pac->name = name ? strdup(name) : NULL;
 	pac->type = type;
+	pac->role = role;
 
 	if (codec)
 		pac->codec = *codec;
@@ -3767,6 +3777,9 @@ static void bap_add_sink(struct bt_bap_pac *pac)
 
 	queue_push_tail(pac->bdb->sinks, pac);
 
+	if (!(pac->role & BT_BAP_ROLE_SERVER))
+		return;
+
 	memset(value, 0, sizeof(value));
 
 	iov.iov_base = value;
@@ -3837,6 +3850,9 @@ static void bap_add_source(struct bt_bap_pac *pac)
 
 	queue_push_tail(pac->bdb->sources, pac);
 
+	if (!(pac->role & BT_BAP_ROLE_SERVER))
+		return;
+
 	memset(value, 0, sizeof(value));
 
 	iov.iov_base = value;
@@ -3888,6 +3904,7 @@ static void notify_session_pac_added(void *data, void *user_data)
 
 struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
 					const char *name, uint8_t type,
+					uint8_t role,
 					uint8_t id, uint16_t cid, uint16_t vid,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
@@ -3911,7 +3928,10 @@ struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
 	codec.cid = cid;
 	codec.vid = vid;
 
-	pac = bap_pac_new(bdb, name, type, &codec, qos, data, metadata);
+	if (type == BT_BAP_BCAST_SOURCE || type == BT_BAP_BCAST_SINK)
+		role = BT_BAP_ROLE_BOTH;
+
+	pac = bap_pac_new(bdb, name, type, role, &codec, qos, data, metadata);
 
 	switch (type) {
 	case BT_BAP_SINK:
@@ -3937,13 +3957,13 @@ struct bt_bap_pac *bt_bap_add_vendor_pac(struct gatt_db *db,
 }
 
 struct bt_bap_pac *bt_bap_add_pac(struct gatt_db *db, const char *name,
-					uint8_t type, uint8_t id,
+					uint8_t type, uint8_t role, uint8_t id,
 					struct bt_bap_pac_qos *qos,
 					struct iovec *data,
 					struct iovec *metadata)
 {
-	return bt_bap_add_vendor_pac(db, name, type, id, 0x0000, 0x0000, qos,
-							data, metadata);
+	return bt_bap_add_vendor_pac(db, name, type, role, id, 0x0000, 0x0000,
+							qos, data, metadata);
 }
 
 uint8_t bt_bap_pac_get_type(struct bt_bap_pac *pac)
@@ -3968,8 +3988,12 @@ uint32_t bt_bap_pac_get_locations(struct bt_bap_pac *pac)
 
 	switch (pac->type) {
 	case BT_BAP_SOURCE:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.location;
 		return pacs->source_loc_value;
 	case BT_BAP_SINK:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.location;
 		return pacs->sink_loc_value;
 	default:
 		return 0;
@@ -3987,8 +4011,12 @@ uint16_t bt_bap_pac_get_supported_context(struct bt_bap_pac *pac)
 
 	switch (pac->type) {
 	case BT_BAP_SOURCE:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.supported_context;
 		return pacs->supported_source_context_value;
 	case BT_BAP_SINK:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.supported_context;
 		return pacs->supported_sink_context_value;
 	default:
 		return 0;
@@ -4006,8 +4034,12 @@ uint16_t bt_bap_pac_get_context(struct bt_bap_pac *pac)
 
 	switch (pac->type) {
 	case BT_BAP_SOURCE:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.context;
 		return pacs->source_context_value;
 	case BT_BAP_SINK:
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			return pac->qos.context;
 		return pacs->sink_context_value;
 	default:
 		return 0;
@@ -4114,6 +4146,9 @@ bool bt_bap_remove_pac(struct bt_bap_pac *pac)
 	if (queue_remove_if(pac->bdb->sinks, NULL, pac)) {
 		struct bt_pacs *pacs = pac->bdb->pacs;
 		struct bt_bap_pac_qos qos;
+
+		if (!(pac->role & BT_BAP_ROLE_SERVER))
+			goto found;
 
 		memset(&qos, 0, sizeof(qos));
 		queue_foreach(pac->bdb->sinks, bap_pac_sink_removed, &qos);
@@ -4468,8 +4503,8 @@ static void bap_parse_pacs(struct bt_bap *bap, uint8_t type,
 			continue;
 		}
 
-		pac = bap_pac_new(bap->rdb, NULL, type, &p->codec, NULL, &data,
-								&metadata);
+		pac = bap_pac_new(bap->rdb, NULL, type, BT_BAP_ROLE_SERVER,
+					&p->codec, NULL, &data, &metadata);
 		if (!pac)
 			continue;
 
@@ -5550,6 +5585,9 @@ static void bap_foreach_pac(struct queue *l, struct queue *r,
 		struct bt_bap_pac *lpac = el->data;
 		const struct queue_entry *er;
 
+		if (!(lpac->role & BT_BAP_ROLE_CLIENT))
+			return;
+
 		for (er = queue_get_entries(r); er; er = er->next) {
 			struct bt_bap_pac *rpac = er->data;
 
@@ -6452,7 +6490,7 @@ bool bt_bap_new_bcast_source(struct bt_bap *bap, const char *name)
 		return true;
 
 	pac_broadcast_source = bap_pac_new(bap->rdb, name, BT_BAP_BCAST_SOURCE,
-			NULL, NULL, NULL, NULL);
+				BT_BAP_ROLE_BOTH, NULL, NULL, NULL, NULL);
 	queue_push_tail(bap->rdb->broadcast_sources, pac_broadcast_source);
 
 	if (!pac_broadcast_source)
