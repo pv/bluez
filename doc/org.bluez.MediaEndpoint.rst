@@ -162,6 +162,34 @@ bool DelayReporting [readonly, optional]
 
 	Indicates if endpoint supports Delay Reporting.
 
+byte Role [readonly, optional, ISO only, experimental]
+`````````````````````````````````````````````````````````````
+
+	Only for BAP Unicast endpoints.
+
+	Indicates whether the endpoint is a BAP Unicast Client or a
+	BAP Unicast Server endpoint.
+
+	Client endpoint PACs are used to configure client connections
+	from the local device.  Server endpoints PACs are published on
+	GATT for remote devices to use.
+
+	If this property is omitted, Client + Server is assumed.
+
+	Possible values:
+
+	:0x01:
+
+		Unicast Server
+
+	:0x02:
+
+		Unicast Client
+
+	:0x03:
+
+		Unicast Client and Server (default)
+
 uint32 Locations [readonly, optional, ISO only, experimental]
 `````````````````````````````````````````````````````````````
 
