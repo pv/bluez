@@ -197,6 +197,11 @@ static void select_complete(struct avdtp *session, struct a2dp_sep *sep,
 	if (err)
 		goto failed;
 
+	if (sink->stream && sink->stream_state >= AVDTP_STATE_OPEN) {
+		DBG("Sink connected while selecting, don't reconfigure");
+		return;
+	}
+
 	id = a2dp_config(session, sep, stream_setup_complete, caps, sink);
 	if (id == 0)
 		goto failed;

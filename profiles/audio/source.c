@@ -197,6 +197,11 @@ static void select_complete(struct avdtp *session, struct a2dp_sep *sep,
 	if (caps == NULL)
 		goto failed;
 
+	if (source->stream && source->stream_state >= AVDTP_STATE_OPEN) {
+		DBG("Source connected while selecting, don't reconfigure");
+		return;
+	}
+
 	id = a2dp_config(session, sep, stream_setup_complete, caps, source);
 	if (id == 0)
 		goto failed;
