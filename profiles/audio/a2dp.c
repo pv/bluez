@@ -72,6 +72,7 @@ struct a2dp_sep {
 	struct avdtp *session;
 	struct avdtp_stream *stream;
 	unsigned int suspend_timer;
+	unsigned int state_cb_id;
 	gboolean delay_reporting;
 	gboolean locked;
 	gboolean suspending;
@@ -558,6 +559,7 @@ static void stream_state_changed(struct avdtp_stream *stream,
 	}
 
 	sep->stream = NULL;
+	sep->state_cb_id = 0;
 
 	if (sep->endpoint && sep->endpoint->clear_configuration)
 		sep->endpoint->clear_configuration(sep, sep->user_data);
@@ -577,9 +579,6 @@ static gboolean auto_config(gpointer data)
 		goto done;
 
 	dev = avdtp_get_device(setup->session);
-
-	avdtp_stream_add_cb(setup->session, setup->stream,
-				stream_state_changed, setup->sep);
 
 	if (setup->sep->type == AVDTP_SEP_TYPE_SOURCE) {
 		service = btd_device_get_service(dev, A2DP_SINK_UUID);
@@ -673,7 +672,16 @@ static gboolean endpoint_setconf_ind(struct avdtp *session,
 	if (!setup)
 		return FALSE;
 
+	if (a2dp_sep->stream) {
+		error("Set_Configuration_Ind error: SEP is busy");
+		setup_error_init(setup, AVDTP_DELAY_REPORTING, AVDTP_BAD_STATE);
+		goto done;
+	}
+
 	a2dp_sep->stream = stream;
+	a2dp_sep->state_cb_id = avdtp_stream_add_cb(session, stream,
+						stream_state_changed, a2dp_sep);
+
 	setup->sep = a2dp_sep;
 	setup->stream = stream;
 	setup->setconf_cb = cb;
@@ -947,6 +955,7 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 	struct btd_device *dev;
 	struct btd_service *service;
+	struct avdtp_error local_err;
 	int ret;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
@@ -955,6 +964,12 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 		DBG("Source %p: Set_Configuration_Cfm", sep);
 
 	setup = find_setup_by_session(session);
+
+	if (!err && a2dp_sep->stream) {
+		error("Set_Configuration_Cfm error: SEP is busy");
+		avdtp_error_init(&local_err, AVDTP_ERRNO, EBUSY);
+		err = &local_err;
+	}
 
 	if (err) {
 		if (setup) {
@@ -969,8 +984,9 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 		return;
 	}
 
-	avdtp_stream_add_cb(session, stream, stream_state_changed, a2dp_sep);
 	a2dp_sep->stream = stream;
+	a2dp_sep->state_cb_id = avdtp_stream_add_cb(session, stream,
+						stream_state_changed, a2dp_sep);
 
 	if (!setup)
 		return;
@@ -1493,7 +1509,11 @@ static void abort_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	else
 		DBG("Source %p: Abort_Ind", sep);
 
+	if (a2dp_sep->state_cb_id)
+		avdtp_stream_remove_cb(a2dp_sep->session, a2dp_sep->stream,
+							a2dp_sep->state_cb_id);
 	a2dp_sep->stream = NULL;
+	a2dp_sep->state_cb_id = 0;
 
 	setup = find_setup_by_session(session);
 	if (!setup)
