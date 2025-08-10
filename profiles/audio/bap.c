@@ -2320,6 +2320,9 @@ static bool find_cig_session(const void *data, const void *match_data)
 	const struct bap_data *session = data;
 	const struct find_cig_data *info = match_data;
 
+	if (!session->service)
+		return false;
+
 	if (device_get_adapter(session->device) != info->adapter)
 		return false;
 
@@ -2452,6 +2455,9 @@ static void update_cig_check_session(void *data, void *match_data)
 	struct bap_data *session = data;
 	struct update_cig_data *info = match_data;
 
+	if (!session->service)
+		return;
+
 	if (device_get_adapter(session->device) != info->adapter)
 		return;
 
@@ -2507,6 +2513,8 @@ static gboolean bap_update_cigs_cb(void *user_data)
 	bool unset;
 
 	data->cig_update_id = 0;
+	if (!data->service)
+		return FALSE;
 
 	cigs = find_cig_enumerate(data);
 	unset = queue_remove(cigs, UINT_TO_PTR(BT_ISO_QOS_CIG_UNSET));
@@ -2524,6 +2532,8 @@ static gboolean bap_update_cigs_cb(void *user_data)
 
 static void bap_update_cigs(struct bap_data *data)
 {
+	if (!data->service)
+		return;
 	if (data->cig_update_id)
 		return;
 
