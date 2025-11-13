@@ -34,6 +34,11 @@
 #include "src/shared/bap.h"
 #include "src/shared/lc3.h"
 
+#define tester_test_failed_here() \
+	do { tester_warn("failed in %s", __func__); tester_test_failed(); } while (0)
+#define tester_test_fail_return(value...) \
+	do { tester_test_failed_here(); return value; } while (0)
+
 struct test_config {
 	struct iovec cc;
 	struct iovec base;
@@ -70,6 +75,7 @@ struct test_data {
 	struct queue *streams;
 	size_t iovcnt;
 	struct iovec *iov;
+	int fds[8][2];
 };
 
 struct notify {
@@ -1071,6 +1077,7 @@ static void test_bcast(const void *user_data)
 static void test_teardown(const void *user_data)
 {
 	struct test_data *data = (void *)user_data;
+	unsigned int i, j;
 
 	bt_bap_unregister(data->id);
 	bt_bap_unref(data->bap);
@@ -1078,6 +1085,15 @@ static void test_teardown(const void *user_data)
 	util_iov_free(data->iov, data->iovcnt);
 
 	util_iov_free(data->base, 1);
+
+	for (i = 0; i < ARRAY_SIZE(data->fds); ++i) {
+		for (j = 0; j < ARRAY_SIZE(data->fds[0]); ++j) {
+			if (data->fds[i][j] > 0) {
+				close(data->fds[i][j]);
+				data->fds[i][j] = -1;
+			}
+		}
+	}
 
 	bt_bap_remove_pac(data->snk);
 	bt_bap_remove_pac(data->src);
@@ -9248,7 +9264,189 @@ struct test_select_data {
 	unsigned int num_snk;
 	uint32_t src_locations[4];
 	uint32_t snk_locations[4];
+	struct bt_bap_pac *rpac;
+	unsigned int stream_idx;
 };
+
+static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
+						struct test_data *data)
+{
+	unsigned int idx = PTR_TO_UINT(bt_bap_stream_get_user_data(stream));
+	struct bt_bap_qos *qos = bt_bap_stream_get_qos(stream);
+	struct io *io;
+	int fd, fd2;
+	unsigned int payload;
+	ssize_t err;
+
+	tester_debug("streaming stream %p", stream);
+
+	io = bt_bap_stream_get_io(stream);
+	if (!io)
+		tester_test_fail_return();
+
+	g_assert(qos->ucast.cis_id < ARRAY_SIZE(data->fds));
+
+	fd = io_get_fd(io);
+	fd2 = data->fds[qos->ucast.cis_id][1];
+	g_assert(fd == data->fds[qos->ucast.cis_id][0]);
+
+	switch (bt_bap_stream_get_dir(stream)) {
+	case BT_BAP_SINK:
+		err = write(fd, &idx, sizeof(idx));
+		g_assert(err == sizeof(idx));
+
+		err = read(fd2, &payload, sizeof(payload));
+		g_assert(err == sizeof(payload));
+		break;
+	case BT_BAP_SOURCE:
+		err = write(fd2, &idx, sizeof(idx));
+		g_assert(err == sizeof(idx));
+
+		err = read(fd, &payload, sizeof(payload));
+		g_assert(err == sizeof(payload));
+		break;
+	default:
+		tester_test_fail_return();
+	}
+
+	if (payload != idx)
+		tester_test_fail_return();
+
+	if (data->id-- == 0)
+		tester_test_fail_return();
+
+	/* All streams handled */
+	if (data->id == 0)
+		tester_test_passed();
+}
+
+static void streaming_ucl_connected(struct bt_bap_stream *stream,
+						struct test_data *data)
+{
+	int fd;
+	int err;
+
+	tester_debug("connected stream %p", stream);
+
+	if (!bt_bap_stream_io_is_connecting(stream, &fd))
+		return;
+
+	err = bt_bap_stream_set_io(stream, fd);
+	if (err)
+		tester_test_fail_return();
+
+	data->id++;
+}
+
+static void streaming_ucl_connect(struct bt_bap_stream *stream,
+						struct test_data *data)
+{
+	struct bt_bap_qos *qos[2] = {};
+	unsigned int i;
+	int err;
+
+	tester_debug("connect stream %p", stream);
+
+	if (bt_bap_stream_get_io(stream))
+		tester_test_fail_return();
+	if (bt_bap_stream_io_is_connecting(stream, NULL))
+		return;
+	if (!bt_bap_stream_io_get_qos(stream, &qos[0], &qos[1]))
+		tester_test_fail_return();
+
+	g_assert(!qos[0] || qos[0]->ucast.cis_id == BT_ISO_QOS_CIS_UNSET);
+	g_assert(!qos[1] || qos[1]->ucast.cis_id == BT_ISO_QOS_CIS_UNSET);
+
+	for (i = 0; i < ARRAY_SIZE(data->fds); ++i) {
+		if (data->fds[i][0] > 0)
+			continue;
+
+		if (qos[0])
+			qos[0]->ucast.cis_id = i;
+		if (qos[1])
+			qos[1]->ucast.cis_id = i;
+		break;
+	}
+	g_assert(i < ARRAY_SIZE(data->fds));
+
+	err = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, data->fds[i]);
+	g_assert(err == 0);
+
+	err = bt_bap_stream_io_connecting(stream, data->fds[i][0]);
+	if (err)
+		tester_test_fail_return();
+}
+
+static void streaming_ucl_state(struct bt_bap_stream *stream,
+					uint8_t old_state, uint8_t new_state,
+					void *user_data)
+{
+	struct test_data *data = user_data;
+	const struct queue_entry *entry;
+	struct bt_bap_qos qos = data->cfg->qos;
+	uint8_t id;
+
+	tester_debug("stream %p state %d -> %d", stream, old_state, new_state);
+
+	switch (new_state) {
+	case BT_BAP_STREAM_STATE_CONFIG:
+		qos.ucast.cig_id = 0;
+		qos.ucast.cis_id = BT_ISO_QOS_CIS_UNSET;
+		id = bt_bap_stream_qos(stream, &qos, NULL, NULL);
+		g_assert(id);
+		break;
+	case BT_BAP_STREAM_STATE_QOS:
+		if (data->id-- == 0)
+			tester_test_failed();
+		if (data->id)
+			return;
+
+		/* All streams in QoS: proceed */
+		for (entry = queue_get_entries(data->streams);
+		     			entry; entry = entry->next) {
+			struct bt_bap_stream *s = entry->data;
+
+			if (data->cfg->state == BT_BAP_STREAM_STATE_QOS)
+				streaming_ucl_connect(s, data);
+
+			id = bt_bap_stream_enable(stream, false, NULL,
+							NULL, NULL);
+			g_assert(id);
+		}
+		break;
+	case BT_BAP_STREAM_STATE_ENABLING:
+		if (data->cfg->state == BT_BAP_STREAM_STATE_ENABLING)
+			streaming_ucl_connect(stream, data);
+		streaming_ucl_connected(stream, data);
+		break;
+	case BT_BAP_STREAM_STATE_STREAMING:
+		streaming_ucl_do_stream(stream, data);
+		break;
+	}
+}
+
+static void test_select_cb(struct bt_bap_pac *pac, int err,
+			struct iovec *caps, struct iovec *metadata,
+			struct bt_bap_qos *qos, void *user_data)
+{
+	struct test_select_data *sdata = user_data;
+	struct test_data *data = sdata->data;
+	struct bt_bap_stream *stream;
+
+	data->id++;
+
+	stream = bt_bap_stream_new(data->bap, pac, sdata->rpac, qos, caps);
+	bt_bap_stream_lock(stream);
+
+	tester_debug("new stream %p", stream);
+
+	queue_push_tail(data->streams, stream);
+
+	bt_bap_stream_config(stream, qos, caps, NULL, NULL);
+
+	bt_bap_stream_set_user_data(stream, UINT_TO_PTR(sdata->stream_idx));
+	sdata->stream_idx++;
+}
 
 static bool test_select_pac(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
 								void *user_data)
@@ -9257,8 +9455,10 @@ static bool test_select_pac(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
 	struct test_config *cfg = sdata->data->cfg;
 	int err, count = 0;
 
+	sdata->rpac = rpac;
+
 	err = bt_bap_select(sdata->data->bap, lpac, rpac, cfg->streams, &count,
-							(void *)0x1, sdata);
+							test_select_cb, sdata);
 	if (err)
 		tester_test_failed();
 
@@ -9278,23 +9478,17 @@ static void bap_select_ready(struct bt_bap *bap, void *user_data)
 
 	for (i = 0; i < sdata.num_snk; ++i)
 		if (sdata.snk_locations[i] != cfg->snk_locations[i])
-			goto fail;
+			tester_test_fail_return();
 	if (i < ARRAY_SIZE(cfg->snk_locations) &&
 			cfg->snk_locations[i] != (uint32_t)-1)
-		goto fail;
+		tester_test_fail_return();
 
 	for (i = 0; i < sdata.num_src; ++i)
 		if (sdata.src_locations[i] != cfg->src_locations[i])
-			goto fail;
+			tester_test_fail_return();
 	if (i < ARRAY_SIZE(cfg->src_locations) &&
 			cfg->src_locations[i] != (uint32_t)-1)
-		goto fail;
-
-	tester_test_passed();
-	return;
-
-fail:
-	tester_test_failed();
+		tester_test_fail_return();
 }
 
 static int pac_select(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
@@ -9302,23 +9496,33 @@ static int pac_select(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
 			bt_bap_pac_select_t cb, void *cb_data, void *user_data)
 {
 	struct test_select_data *sdata = cb_data;
+	struct test_data *data = sdata->data;
+	uint8_t buf[512];
+	struct iovec cc = { .iov_base = buf, .iov_len = 0 };
+	struct iovec metadata = { 0 };
 
 	if (bt_bap_pac_get_type(rpac) == BT_BAP_SINK) {
 		if (sdata->num_snk >= ARRAY_SIZE(sdata->snk_locations))
-			goto fail;
+			tester_test_fail_return(0);
 		tester_debug("select SNK 0x%08x", location);
 		sdata->snk_locations[sdata->num_snk++] = location;
 	} else {
 		if (sdata->num_src >= ARRAY_SIZE(sdata->src_locations))
-			goto fail;
+			tester_test_fail_return(0);
 		tester_debug("select SRC 0x%08x", location);
 		sdata->src_locations[sdata->num_src++] = location;
 	}
 
-	return 0;
+	util_iov_push_mem(&cc, data->cfg->cc.iov_len, data->cfg->cc.iov_base);
 
-fail:
-	tester_test_failed();
+	/* Audio_Channel_Allocation */
+	util_iov_push_u8(&cc, 0x05);
+	util_iov_push_u8(&cc, 0x03);
+	util_iov_push_le32(&cc, location);
+
+	g_assert(cc.iov_len <= sizeof(buf));
+
+	cb(lpac, 0, &cc, &metadata, &data->cfg->qos, cb_data);
 	return 0;
 }
 
@@ -9352,6 +9556,8 @@ static void test_select(const void *user_data)
 	bt_bap_set_debug(data->bap, print_debug, "bt_bap:", NULL);
 
 	bt_bap_ready_register(data->bap, bap_select_ready, data, NULL);
+
+	bt_bap_state_register(data->bap, streaming_ucl_state, NULL, data, NULL);
 
 	bt_bap_attach(data->bap, data->client);
 }
