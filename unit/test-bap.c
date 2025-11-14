@@ -3772,15 +3772,25 @@ static struct test_config cfg_src_disable = {
  *   Handle: 0x001c
  *     Data: 030300000403020100
  */
-#define ASE_SRC_DISABLE \
-	IOV_DATA(0x52, 0x22, 0x00, 0x05, 0x01, 0x03), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x05, 0x01, 0x03, 0x00, 0x00), \
+
+#define SRC_DISABLE_TAIL(i) SRC_ID(i)
+
+#define SRC_DISABLE_IDX(i) \
+	IOV_DATA(DISABLE_HEAD(1), SRC_DISABLE_TAIL(i)), \
+	IOV_DATA(0x1b, CP_HND, 0x05, 0x01, SRC_ID(i), 0x00, 0x00)
+
+#define SRC_DISABLE_NOTIFY_IDX(i, cis) \
 	IOV_NULL, \
-	IOV_DATA(0x1b, 0x1c, 0x00, 0x03, 0x05, 0x00, 0x00, 0x04, 0x03, 0x02, \
-		 0x01, 0x00)
+	IOV_DATA(0x1b, SRC_HND(i), SRC_ID(i), 0x05, \
+			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
+
+#define SRC_DISABLE \
+	SRC_DISABLE_IDX(0), \
+	SRC_DISABLE_NOTIFY_IDX(0, 0)
+
 #define SCC_SRC_DISABLE \
 	SCC_SRC_ENABLE, \
-	ASE_SRC_DISABLE
+	SRC_DISABLE
 
 static void state_start_disable(struct bt_bap_stream *stream,
 					uint8_t old_state, uint8_t new_state,
@@ -3816,19 +3826,26 @@ static struct test_config cfg_src_disable_streaming = {
  *   Handle: 0x0016
  *     Data: 0101010400403020100
  */
-#define SRC_START_IDX(idx, cis) \
-	IOV_DATA(0x52, 0x22, 0x00, 0x04, 0x01, 0x03 + idx),		\
-	IOV_DATA(0x1b, 0x22, 0x00, 0x04, 0x01, 0x03 + idx, 0x00, 0x00), \
-	IOV_NULL, \
-	IOV_DATA(0x1b, 0x1c, 0x00, 0x03 + idx, 0x04, \
-				0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
+#define START_HEAD(count) \
+	0x52, CP_HND, 0x04, (count)
 
-#define SRC_START	SRC_START_IDX(0, 0)
+#define SRC_START_IDX(i) \
+	IOV_DATA(START_HEAD(1), SRC_ID(i)), \
+	IOV_DATA(0x1b, CP_HND, 0x04, 0x01, SRC_ID(i), 0x00, 0x00)
+
+#define SRC_START_NOTIFY_IDX(i, cis) \
+	IOV_NULL, \
+	IOV_DATA(0x1b, SRC_HND(i), SRC_ID(i), 0x04, \
+			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
+
+#define SRC_START \
+	SRC_START_IDX(0), \
+	SRC_START_NOTIFY_IDX(0, 0)
 
 #define SCC_SRC_DISABLE_STREAMING \
 	SCC_SRC_ENABLE, \
 	SRC_START, \
-	ASE_SRC_DISABLE
+	SRC_DISABLE
 
 /* Test Purpose:
  * Verify that a Unicast Client IUT can initiate a Disable operation for an ASE
