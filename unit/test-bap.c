@@ -9044,36 +9044,34 @@ static void test_bsrc_str(void)
 #define DISC_SRC_ONLY_NO_LOC(caps) \
 	DISC_SRC_ASE_NO_LOCATION(UNKNOWN_PAC_CAPS, IOV_CONTENT(caps))
 
-#define STR_SCC_DATA(codec_id, challoc) \
+#define STR_SCC_DATA(challoc, codec_id...) \
 	/* NOTE: only channel allocation in CC for simplicity */ \
 	codec_id, 0x06, 0x05, 0x03, \
 	challoc & 0xff, (challoc >> 8) & 0xff, \
 	(challoc >> 16) & 0xff, (challoc >> 24) & 0xff
 
-#define STR_SCC_DATA_LC3(challoc) \
-	STR_SCC_DATA(IOV_CONTENT(LC3_CODEC_ID_DATA), challoc)
-
-#define STR_SNK_STREAMING(codec_id, challoc) \
-	SCC_SNK(STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+#define STR_SNK_STREAMING(challoc, codec_id...)	\
+	SCC_SNK(STR_SCC_DATA(challoc, codec_id)), \
 	QOS_SNK(QOS_SRC_8_1_1_DATA), \
 	SNK_ENABLE, \
 	SNK_START_NOTIFY(0, 0)
 
-#define STR_SRC_STREAMING(codec_id, challoc) \
-	SCC_SRC(STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+#define STR_SRC_STREAMING(challoc, codec_id...)	\
+	SCC_SRC(STR_SCC_DATA(challoc, codec_id)), \
 	QOS_SRC(QOS_SRC_8_1_1_DATA), \
 	SRC_ENABLE, \
 	SRC_START
 
 #define STR_SNK_STREAMING_LC3(challoc) \
-	STR_SNK_STREAMING(IOV_CONTENT(LC3_CODEC_ID_DATA), challoc)
+	STR_SNK_STREAMING(challoc, LC3_CODEC_ID_DATA)
 
 #define STR_SRC_STREAMING_LC3(challoc) \
-	STR_SRC_STREAMING(IOV_CONTENT(LC3_CODEC_ID_DATA), challoc)
+	STR_SRC_STREAMING(challoc, LC3_CODEC_ID_DATA)
 
-#define SCC_ASE2_LC3(id1, id2, ch1, ch2) \
-	IOV_DATA(SCC_PDU(2), SCC_PDU_ASE(id1, STR_SCC_DATA_LC3(ch1)), \
-				SCC_PDU_ASE(id2, STR_SCC_DATA_LC3(ch2))), \
+#define SCC_ASE2(id1, id2, ch1, ch2, codec_id...) \
+	IOV_DATA(SCC_PDU(2), \
+		SCC_PDU_ASE(id1, STR_SCC_DATA(ch1, codec_id)), \
+		SCC_PDU_ASE(id2, STR_SCC_DATA(ch2, codec_id))), \
 	IOV_DATA(0x1b, CP_HND, 0x01, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
 
 #define QOS_ASE2(id1, id2, cis1, cis2, _qos...)	 \
@@ -9085,19 +9083,59 @@ static void test_bsrc_str(void)
 	IOV_DATA(ENABLE_PDU(2), ENABLE_PDU_ASE(id1), ENABLE_PDU_ASE(id2)), \
 	IOV_DATA(0x1b, CP_HND, 0x03, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
 
-#define STR_SNK_SRC_STREAMING_LC3(cis1, cis2, challoc1, challoc2) \
-	SCC_ASE2_LC3(SNK_ID(0), SRC_ID(0), challoc1, challoc2), \
-	SCC_SNK_NOTIFY(0, STR_SCC_DATA_LC3(challoc1)), \
-	SCC_SRC_NOTIFY(0, STR_SCC_DATA_LC3(challoc2)), \
+#define START_ASE2(id1, id2) \
+	IOV_DATA(START_PDU(2), id1, id2), \
+	IOV_DATA(0x1b, CP_HND, 0x04, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
+
+#define STR_SNK_SRC_STREAMING(cis1, cis2, challoc1, challoc2, codec_id...) \
+	SCC_ASE2(SNK_ID(0), SRC_ID(0), challoc1, challoc2, codec_id), \
+	SCC_SNK_NOTIFY(0, STR_SCC_DATA(challoc1, codec_id)), \
+	SCC_SRC_NOTIFY(0, STR_SCC_DATA(challoc2, codec_id)), \
 	QOS_ASE2(SNK_ID(0), SRC_ID(0), cis1, cis2, QOS_SRC_8_1_1_DATA), \
-	QOS_SNK_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
-	QOS_SRC_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SNK_NOTIFY(0, cis1, QOS_SRC_8_1_1_DATA), \
+	QOS_SRC_NOTIFY(0, cis2, QOS_SRC_8_1_1_DATA), \
 	ENABLE_ASE2(SNK_ID(0), SRC_ID(0)), \
 	SNK_ENABLE_NOTIFY(0, cis1),  \
 	SRC_ENABLE_NOTIFY(0, cis2), \
 	SNK_START_NOTIFY(0, cis1), \
 	START_ASE(SRC_ID(0)), \
 	SRC_START_NOTIFY(0, cis2)
+
+#define STR_SNK_SRC_STREAMING_LC3(cis1, cis2, challoc1, challoc2) \
+	STR_SNK_SRC_STREAMING(cis1, cis2, challoc1, challoc2, LC3_CODEC_ID_DATA)
+
+#define STR_SNK2_STREAMING(cis1, cis2, challoc1, challoc2, codec_id...) \
+	SCC_ASE2(SNK_ID(0), SNK_ID(1), challoc1, challoc2, codec_id), \
+	SCC_SNK_NOTIFY(0, STR_SCC_DATA(challoc1, codec_id)), \
+	SCC_SRC_NOTIFY(1, STR_SCC_DATA(challoc2, codec_id)), \
+	QOS_ASE2(SNK_ID(0), SNK_ID(1), cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SNK_NOTIFY(0, cis1, QOS_SRC_8_1_1_DATA), \
+	QOS_SRC_NOTIFY(1, cis2, QOS_SRC_8_1_1_DATA), \
+	ENABLE_ASE2(SNK_ID(0), SNK_ID(1)), \
+	SNK_ENABLE_NOTIFY(0, cis1),  \
+	SNK_ENABLE_NOTIFY(0, cis2),  \
+	SNK_START_NOTIFY(0, cis1), \
+	SNK_START_NOTIFY(0, cis2)
+
+#define STR_SNK2_STREAMING_LC3(cis1, cis2, challoc1, challoc2) \
+	STR_SNK2_STREAMING(cis1, cis2, challoc1, challoc2, LC3_CODEC_ID_DATA)
+
+#define STR_SRC2_STREAMING(cis1, cis2, challoc1, challoc2, codec_id...) \
+	SCC_ASE2(SRC_ID(0), SRC_ID(1), challoc1, challoc2, codec_id), \
+	SCC_SRC_NOTIFY(0, STR_SCC_DATA(challoc1, codec_id)), \
+	SCC_SRC_NOTIFY(1, STR_SCC_DATA(challoc2, codec_id)), \
+	QOS_ASE2(SRC_ID(0), SRC_ID(1), cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SRC_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SRC_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	ENABLE_ASE2(SRC_ID(0), SRC_ID(1)), \
+	SRC_ENABLE_NOTIFY(0, cis1),  \
+	SRC_ENABLE_NOTIFY(1, cis2), \
+	START_ASE2(SRC_ID(0), SRC_ID2(1)), \
+	SRC_START_NOTIFY(0, cis2), \
+	SRC_START_NOTIFY(1, cis2)
+
+#define STR_SRC2_STREAMING_LC3(cis1, cis2, challoc1, challoc2) \
+	STR_SRC_STREAMING(cis1, cis2, challoc1, challoc2, LC3_CODEC_ID_DATA)
 
 /* BAP.TS 4.10.1 configurations */
 #define DISC_AC1_0a	DISC_SNK_ONLY(0, LC3_PAC_CAPS(0x01))
