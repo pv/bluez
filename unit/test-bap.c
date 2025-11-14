@@ -9074,7 +9074,30 @@ static void test_bsrc_str(void)
 #define SCC_ASE2_LC3(id1, id2, ch1, ch2) \
 	IOV_DATA(SCC_PDU(2), SCC_PDU_ASE(id1, STR_SCC_DATA_LC3(ch1)), \
 				SCC_PDU_ASE(id2, STR_SCC_DATA_LC3(ch2))), \
-	IOV_DATA(0x1b, CP_HND, 0x02, 0x02, id1, 0x00, 0x00,  id2, 0x00, 0x00)
+	IOV_DATA(0x1b, CP_HND, 0x01, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
+
+#define QOS_ASE2(id1, id2, cis1, cis2, _qos...)	 \
+	IOV_DATA(QOS_PDU(2), QOS_PDU_ASE(id1, cis1, _qos), \
+				QOS_PDU_ASE(id2, cis2, _qos)), \
+	IOV_DATA(0x1b, CP_HND, 0x02, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
+
+#define ENABLE_ASE2(id1, id2) \
+	IOV_DATA(ENABLE_PDU(2), ENABLE_PDU_ASE(id1), ENABLE_PDU_ASE(id2)), \
+	IOV_DATA(0x1b, CP_HND, 0x03, 0x02, id1, 0x00, 0x00, id2, 0x00, 0x00)
+
+#define STR_SNK_SRC_STREAMING_LC3(cis1, cis2, challoc1, challoc2) \
+	SCC_ASE2_LC3(SNK_ID(0), SRC_ID(0), challoc1, challoc2), \
+	SCC_SNK_NOTIFY(0, STR_SCC_DATA_LC3(challoc1)), \
+	SCC_SRC_NOTIFY(0, STR_SCC_DATA_LC3(challoc2)), \
+	QOS_ASE2(SNK_ID(0), SRC_ID(0), cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SNK_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	QOS_SRC_NOTIFY(cis1, cis2, QOS_SRC_8_1_1_DATA), \
+	ENABLE_ASE2(SNK_ID(0), SRC_ID(0)), \
+	SNK_ENABLE_NOTIFY(0, cis1),  \
+	SRC_ENABLE_NOTIFY(0, cis2), \
+	SNK_START_NOTIFY(0, cis1), \
+	START_ASE(SRC_ID(0)), \
+	SRC_START_NOTIFY(0, cis2)
 
 /* BAP.TS 4.10.1 configurations */
 #define DISC_AC1_0a	DISC_SNK_ONLY(0, LC3_PAC_CAPS(0x01))
@@ -9159,20 +9182,8 @@ static void test_bsrc_str(void)
 #define DISC_AC7i	DISC_SRC_ASE(0x4, 0x4, LC3_PAC_CAPS(0x01), \
 							LC3_PAC_CAPS(0x01))
 
-#define STR_AC3	\
-	DISC_AC3, \
-	IOV_DATA(SCC_PDU(2), SCC_PDU_SNK(0, STR_SCC_DATA_LC3(0x1)), \
-				SCC_PDU_SRC(0, STR_SCC_DATA_LC3(0x1))), \
-	IOV_DATA(0x1b, CP_HND, 0x02, 0x02, SNK_ID(0), 0x00, 0x00, \
-				SRC_ID(0), 0x00, 0x00), \
-	SCC_SNK_NOTIFY_IDX(0, STR_SCC_DATA_LC3(0x1)), \
-	SCC_SRC_NOTIFY_IDX(0, STR_SCC_DATA_LC3(0x1)), \
-	IOV_DATA(QOS_PDU(2), QOS_PDU_SNK(0, 0, QOS_SRC_8_1_1_DATA), \
-				QOS_PDU_SRC(0, 0, QOS_SRC_8_1_1_DATA)), \
-	IOV_DATA(0x1b, CP_HND, 0x03, 0x02, SNK_ID(0), 0x00, 0x00, \
-				SRC_ID(0), 0x00, 0x00), \
-	QOS_SNK_NOTIFY_IDX(0, 0, STR_SCC_DATA_LC3(0x1)), \
-	QOS_SRC_NOTIFY_IDX(0, 0, STR_SCC_DATA_LC3(0x1))
+#define STR_AC3		DISC_AC3, STR_SNK_SRC_STREAMING_LC3(0, 0, 0x1, 0x1)
+#define STR_AC5		DISC_AC5, STR_SNK_SRC_STREAMING_LC3(0, 0, 0x22, 0x2)
 
 /* BAP.TS 4.10.4 configurations */
 #define DISC_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
@@ -9304,7 +9315,7 @@ static struct test_config cfg_str_ac3 = {
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { 0x1, -1 },
-//	.qos = LC3_QOS_8_1_1,
+	.qos = LC3_QOS_8_1_1,
 };
 
 static struct test_config cfg_str_ac5 = {
@@ -9312,6 +9323,7 @@ static struct test_config cfg_str_ac5 = {
 	.src = true,
 	.snk_locations = { 0x22, -1 },
 	.src_locations = { 0x2, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
 static struct test_config cfg_str_ac7i = {
@@ -9489,7 +9501,8 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 		tester_test_fail_return();
 	}
 
-	tester_debug("stream %p: streaming %u => %u", stream, idx, payload);
+	tester_debug("stream %p: streaming %u => %u (%d left)",
+		stream, idx, payload, data->id - 1);
 
 	if (payload != idx)
 		tester_test_fail_return();
@@ -9514,8 +9527,6 @@ static void streaming_ucl_connect(struct bt_bap_stream *stream,
 
 	if (!bt_bap_stream_set_io(stream, fd))
 		tester_test_fail_return();
-
-	data->id++;
 }
 
 static int streaming_ucl_create_io(struct bt_bap_stream *stream,
@@ -9591,9 +9602,11 @@ static void streaming_ucl_state(struct bt_bap_stream *stream,
 			if (data->cfg->state != BT_BAP_STREAM_STATE_ENABLING)
 				streaming_ucl_connect(s, data);
 
-			id = bt_bap_stream_enable(stream, false, NULL,
+			id = bt_bap_stream_enable(s, false, NULL,
 							NULL, NULL);
 			g_assert(id);
+
+			data->id++;
 		}
 		break;
 	case BT_BAP_STREAM_STATE_ENABLING:
@@ -9861,10 +9874,10 @@ static void test_ucl_select(void)
 
 	define_test("BAP/UCL/STR/BV-523-C [UCL, AC 3, Generic]",
 		test_setup, test_select,
-		&cfg_str_ac3, DISC_AC3);
+		&cfg_str_ac3, STR_AC3);
 	define_test("BAP/UCL/STR/BV-524-C [UCL, AC 5, Generic]",
 		test_setup, test_select,
-		&cfg_str_ac5, DISC_AC5);
+		&cfg_str_ac5, STR_AC5);
 	define_test("BAP/UCL/STR/BV-525-C [UCL, AC 7(i), Generic]",
 		test_setup, test_select,
 		&cfg_str_ac7i, DISC_AC7i);
