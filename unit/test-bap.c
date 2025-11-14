@@ -9490,8 +9490,6 @@ static void streaming_ucl_state(struct bt_bap_stream *stream,
 			id = bt_bap_stream_enable(stream, false, NULL,
 							NULL, NULL);
 			g_assert(id);
-
-			bt_bap_process_queue(data->bap);
 		}
 		break;
 	case BT_BAP_STREAM_STATE_ENABLING:
@@ -9532,8 +9530,6 @@ static void test_select_cb(struct bt_bap_pac *pac, int err,
 
 	bt_bap_stream_set_user_data(stream, UINT_TO_PTR(sdata->stream_idx));
 	sdata->stream_idx++;
-
-	bt_bap_process_queue(data->bap);
 }
 
 static bool test_select_pac(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
