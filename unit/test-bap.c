@@ -3659,12 +3659,12 @@ static struct test_config cfg_src_enable = {
 			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
 
 #define SRC_ENABLE \
-	SRC_ENABLE_IDX(0, 0), \
+	SRC_ENABLE_IDX(0), \
 	SRC_ENABLE_NOTIFY_IDX(0, 0)
 
 #define SCC_SRC_ENABLE \
 	SCC_SRC_16_2_1, \
-	SRC_ENABLE_IDX(0, 0), \
+	SRC_ENABLE_IDX(0), \
 	SRC_ENABLE_NOTIFY_IDX(0, 0)
 
 /* Test Purpose:
