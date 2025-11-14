@@ -1546,14 +1546,14 @@ static void test_disc(void)
  *     Data: 01010002010a00204e00409c00204e00409c00_cfg
  */
 
-#define SCC_HEAD(count) \
+#define SCC_PDU(count) \
 	0x52, CP_HND, 0x01, (count)
 
-#define SCC_TAIL_SNK(i, _cfg...) \
+#define SCC_PDU_SNK(i, _cfg...) \
 	SNK_ID(i), 0x02, 0x02, _cfg
 
 #define SCC_SNK_IDX(i, _cfg...) \
-	IOV_DATA(SCC_HEAD(1), SCC_TAIL_SNK(i, _cfg)), \
+	IOV_DATA(SCC_PDU(1), SCC_PDU_SNK(i, _cfg)), \
 	IOV_DATA(0x1b, CP_HND, 0x01, 0x01, SNK_ID(i), 0x00, 0x00)
 
 #define SCC_SNK_NOTIFY_IDX(i, _cfg...) \
@@ -1753,11 +1753,11 @@ static struct test_config cfg_snk_48_6 = {
  *     Data: 03010002010a00204e00409c00204e00409c00_cfg
  */
 
-#define SCC_TAIL_SRC(i, _cfg...) \
+#define SCC_PDU_SRC(i, _cfg...) \
 	SRC_ID(i), 0x02, 0x02, _cfg
 
 #define SCC_SRC_IDX(i, _cfg...) \
-	IOV_DATA(SCC_HEAD(1), SCC_TAIL_SRC(i, _cfg)), \
+	IOV_DATA(SCC_PDU(1), SCC_PDU_SRC(i, _cfg)), \
 	IOV_DATA(0x1b, CP_HND, 0x01, 0x01, SRC_ID(i), 0x00, 0x00)
 
 #define SCC_SRC_NOTIFY_IDX(i, _cfg...) \
@@ -2610,14 +2610,14 @@ static struct test_config cfg_src_48_6_1 = {
  *     Data: 03010102010a00204e00409c00204e00409c00_qos
  */
 
-#define QOS_HEAD(count) \
+#define QOS_PDU(count) \
 	0x52, CP_HND, 0x02, (count)
 
-#define QOS_TAIL_SRC(i, cis, _qos...) \
+#define QOS_PDU_SRC(i, cis, _qos...) \
 	SRC_ID(i), 0x00, cis, _qos
 
 #define QOS_SRC_IDX(i, cis, _qos...) \
-	IOV_DATA(QOS_HEAD(1), QOS_TAIL_SRC(i, cis, _qos)), \
+	IOV_DATA(QOS_PDU(1), QOS_PDU_SRC(i, cis, _qos)), \
 	IOV_DATA(0x1b, CP_HND, 0x02, 0x01, SRC_ID(i), 0x00, 0x00)
 
 #define QOS_SRC_NOTIFY_IDX(i, cis, _qos...) \
@@ -3604,14 +3604,14 @@ static struct test_config cfg_snk_enable = {
  *     Data: 0101010300403020100
  */
 
-#define ENABLE_HEAD(count) \
+#define ENABLE_PDU(count) \
 	0x52, CP_HND, 0x03, (count)
 
-#define SNK_ENABLE_TAIL(i) \
+#define ENABLE_PDU_SNK(i) \
 	SNK_ID(i), 0x04, 0x03, 0x02, 0x01, 00
 
-#define SNK_ENABLE_IDX(i)			   \
-	IOV_DATA(ENABLE_HEAD(1), SNK_ENABLE_TAIL(i)), \
+#define SNK_ENABLE_IDX(i) \
+	IOV_DATA(ENABLE_PDU(1), ENABLE_PDU_SNK(i)), \
 	IOV_DATA(0x1b, CP_HND, 0x03, 0x01, SNK_ID(i), 0x00, 0x00)
 
 #define SNK_ENABLE_NOTIFY_IDX(i, cis) \
@@ -3646,11 +3646,11 @@ static struct test_config cfg_src_enable = {
  *   Handle: 0x001c
  *     Data: 030300000403020100
  */
-#define SRC_ENABLE_TAIL(i) \
+#define ENABLE_PDU_SRC(i) \
 	SRC_ID(i), 0x04, 0x03, 0x02, 0x01, 00
 
 #define SRC_ENABLE_IDX(i) \
-	IOV_DATA(ENABLE_HEAD(1), SRC_ENABLE_TAIL(i)), \
+	IOV_DATA(ENABLE_PDU(1), ENABLE_PDU_SRC(i)), \
 	IOV_DATA(0x1b, CP_HND, 0x03, 0x01, SRC_ID(i), 0x00, 0x00)
 
 #define SRC_ENABLE_NOTIFY_IDX(i, cis) \
@@ -3731,13 +3731,13 @@ static struct test_config cfg_snk_disable = {
  *     Data: 01010102010a00204e00409c00204e00409c00_qos
  */
 
-#define DISABLE_HEAD(count) \
+#define DISABLE_PDU(count) \
 	0x52, CP_HND, 0x05, (count)
 
 #define SNK_DISABLE_TAIL(i) SNK_ID(i)
 
 #define SNK_DISABLE_IDX(i) \
-	IOV_DATA(DISABLE_HEAD(1), SNK_DISABLE_TAIL(i)), \
+	IOV_DATA(DISABLE_PDU(1), SNK_DISABLE_TAIL(i)), \
 	IOV_DATA(0x1b, CP_HND, 0x05, 0x01, SNK_ID(i), 0x00, 0x00)
 
 #define SNK_DISABLE_NOTIFY_IDX(i, cis) \
@@ -3776,7 +3776,7 @@ static struct test_config cfg_src_disable = {
 #define SRC_DISABLE_TAIL(i) SRC_ID(i)
 
 #define SRC_DISABLE_IDX(i) \
-	IOV_DATA(DISABLE_HEAD(1), SRC_DISABLE_TAIL(i)), \
+	IOV_DATA(DISABLE_PDU(1), SRC_DISABLE_TAIL(i)), \
 	IOV_DATA(0x1b, CP_HND, 0x05, 0x01, SRC_ID(i), 0x00, 0x00)
 
 #define SRC_DISABLE_NOTIFY_IDX(i, cis) \
@@ -3826,11 +3826,11 @@ static struct test_config cfg_src_disable_streaming = {
  *   Handle: 0x0016
  *     Data: 0101010400403020100
  */
-#define START_HEAD(count) \
+#define START_PDU(count) \
 	0x52, CP_HND, 0x04, (count)
 
 #define SRC_START_IDX(i) \
-	IOV_DATA(START_HEAD(1), SRC_ID(i)), \
+	IOV_DATA(START_PDU(1), SRC_ID(i)), \
 	IOV_DATA(0x1b, CP_HND, 0x04, 0x01, SRC_ID(i), 0x00, 0x00)
 
 #define SRC_START_NOTIFY_IDX(i, cis) \
