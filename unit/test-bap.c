@@ -137,6 +137,22 @@ static void client_ready_cb(bool success, uint8_t att_ecode, void *user_data)
 }
 
 /* GATT Discover All procedure */
+
+#define SNK_PAC_HND	(0x03)
+#define SRC_PAC_HND	(0x09)
+#define SNK_LOC_HND	(0x06)
+#define SRC_LOC_HND	(0x0c)
+#define CTX_HND		(0x0f)
+#define SUP_CTX_HND	(0x12)
+#define SNK_HND(i)	(0x16 + 3*(i))
+#define SRC_HND(i)	(0x1c + 3*(i))
+#define SNK_CCC_HND(i)	(SNK_HND(i) + 1)
+#define SRC_CCC_HND(i)	(SRC_HND(i) + 1)
+#define SNK_ID(i)	(0x1 + (i))
+#define SRC_ID(i)	(0x3 + (i))
+#define CP_HND		(0x22)
+#define CP_CCC_HND	(CP_HND + 1)
+
 static const struct iovec setup_data[] = {
 	/* ATT: Exchange MTU Response (0x03) len 2
 	 *   Server RX MTU: 64
@@ -1149,11 +1165,11 @@ static void test_teardown(const void *user_data)
 #define IOV_CONTENT(data...) data
 
 #define DISC_SNK_PAC(_caps) \
-	IOV_DATA(0x0a, 0x03, 0x00), \
+	IOV_DATA(0x0a, SNK_PAC_HND, 0x00), \
 	IOV_DATA(0x0b, 0x01, _caps)
 
 #define DISC_SNK_LOC(locations) \
-	IOV_DATA(0x0a, 0x06, 0x00), \
+	IOV_DATA(0x0a, SNK_LOC_HND, 0x00), \
 	IOV_DATA(0x0b, locations & 0xff, (locations >> 8)  & 0xff, \
 		(locations >> 16) & 0xff, (locations >> 24) & 0xff)
 
@@ -1204,11 +1220,11 @@ static void test_teardown(const void *user_data)
  *       Front Right (0x00000002)
  */
 #define DISC_SRC_PAC(_caps) \
-	IOV_DATA(0x0a, 0x09, 0x00), \
+	IOV_DATA(0x0a, SRC_PAC_HND, 0x00), \
 	IOV_DATA(0x0b, 0x01, _caps)
 
 #define DISC_SRC_LOC(locations) \
-	IOV_DATA(0x0a, 0x0c, 0x00), \
+	IOV_DATA(0x0a, SRC_LOC_HND, 0x00), \
 	IOV_DATA(0x0b, locations & 0xff, (locations >> 8) & 0xff, \
 		(locations >> 16) & 0xff, (locations >> 24) & 0xff)
 
@@ -1235,13 +1251,13 @@ static void test_teardown(const void *user_data)
 #define DISC_CTX(snk_locations, src_locations, snk_caps, src_caps) \
 	DISC_PACS(snk_locations, src_locations, \
 			IOV_CONTENT(snk_caps), IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x0f, 0x00), \
+	IOV_DATA(0x0a, CTX_HND, 0x00), \
 	IOV_DATA(0x0b, 0xff, 0x0f, 0xff, 0x0f)
 
 #define DISC_CTX_NO_LOCATION(snk_caps, src_caps) \
 	DISC_PACS_NO_LOCATION(IOV_CONTENT(snk_caps), \
 				IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x0f, 0x00), \
+	IOV_DATA(0x0a, CTX_HND, 0x00), \
 	IOV_DATA(0x0b, 0xff, 0x0f, 0xff, 0x0f)
 
 #define DISC_CTX_LC3 \
@@ -1257,12 +1273,12 @@ static void test_teardown(const void *user_data)
 #define DISC_SUP_CTX(snk_locations, src_locations, snk_caps, src_caps) \
 	DISC_CTX(snk_locations, src_locations, \
 			IOV_CONTENT(snk_caps), IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x12, 0x00), \
+	IOV_DATA(0x0a, SUP_CTX_HND, 0x00), \
 	IOV_DATA(0x0b, 0xff, 0x0f, 0xff, 0x0f)
 
 #define DISC_SUP_CTX_NO_LOCATION(snk_caps, src_caps) \
 	DISC_CTX_NO_LOCATION(IOV_CONTENT(snk_caps), IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x12, 0x00), \
+	IOV_DATA(0x0a, SUP_CTX_HND, 0x00), \
 	IOV_DATA(0x0b, 0xff, 0x0f, 0xff, 0x0f)
 
 #define DISC_SUP_CTX_LC3 \
@@ -1293,20 +1309,22 @@ static void test_teardown(const void *user_data)
 #define DISC_SNK_ASE(snk_locations, src_locations, snk_caps, src_caps)	\
 	DISC_SUP_CTX(snk_locations, src_locations, \
 			IOV_CONTENT(snk_caps), IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x16, 0x00), \
+	IOV_DATA(0x0a, SNK_HND(0), 0x00), \
 	IOV_DATA(0x0b, 0x01, 0x00), \
-	IOV_DATA(0x12, 0x17, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, SNK_CCC_HND(0), 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13), \
-	IOV_DATA(0x0a, 0x19, 0x00), \
+	IOV_DATA(0x0a, SNK_HND(1), 0x00), \
 	IOV_DATA(0x0b, 0x02, 0x00), \
-	IOV_DATA(0x12, 0x1a, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, SNK_CCC_HND(1), 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13)
 
 #define DISC_SNK_ASE_NO_LOCATION(snk_caps, src_caps) \
 	DISC_SUP_CTX_NO_LOCATION(IOV_CONTENT(snk_caps), \
 				IOV_CONTENT(src_caps)), \
-	IOV_DATA(0x0a, 0x16, 0x00), \
-	IOV_DATA(0x0b, 0x01, 0x00)
+	IOV_DATA(0x0a, SNK_HND(0), 0x00), \
+	IOV_DATA(0x0b, 0x01, 0x00), \
+	IOV_DATA(0x12, SNK_CCC_HND(0), 0x00, 0x01, 0x00), \
+	IOV_DATA(0x13)
 
 #define DISC_SNK_ASE_LC3 \
 	DISC_SNK_ASE(0x00000003, 0x00000003, \
@@ -1341,23 +1359,25 @@ static void test_teardown(const void *user_data)
 #define DISC_SRC_ASE(snk_locations, src_locations, snk_pacs, src_pacs) \
 	DISC_SNK_ASE(snk_locations, src_locations, \
 			IOV_CONTENT(snk_pacs), IOV_CONTENT(src_pacs)), \
-	IOV_DATA(0x0a, 0x1c, 0x00), \
+	IOV_DATA(0x0a, SRC_HND(0), 0x00), \
 	IOV_DATA(0x0b, 0x03, 0x00), \
-	IOV_DATA(0x12, 0x1d, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, SRC_CCC_HND(0), 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13), \
-	IOV_DATA(0x0a, 0x1f, 0x00), \
+	IOV_DATA(0x0a, SRC_HND(1), 0x00), \
 	IOV_DATA(0x0b, 0x04, 0x00), \
-	IOV_DATA(0x12, 0x20, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, SRC_CCC_HND(1), 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13), \
-	IOV_DATA(0x12, 0x23, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, CP_CCC_HND, 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13)
 
 #define DISC_SRC_ASE_NO_LOCATION(snk_pacs, src_pacs) \
 	DISC_SNK_ASE_NO_LOCATION(IOV_CONTENT(snk_pacs), \
 				IOV_CONTENT(src_pacs)), \
-	IOV_DATA(0x0a, 0x1c, 0x00), \
+	IOV_DATA(0x0a, SRC_HND(0), 0x00), \
 	IOV_DATA(0x0b, 0x03, 0x00), \
-	IOV_DATA(0x12, 0x23, 0x00, 0x01, 0x00), \
+	IOV_DATA(0x12, SRC_CCC_HND(0), 0x00, 0x01, 0x00), \
+	IOV_DATA(0x13), \
+	IOV_DATA(0x12, CP_CCC_HND, 0x00, 0x01, 0x00), \
 	IOV_DATA(0x13)
 
 #define DISC_SRC_ASE_LC3 \
