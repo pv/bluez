@@ -9184,6 +9184,7 @@ static void test_bsrc_str(void)
 
 #define STR_AC3		DISC_AC3, STR_SNK_SRC_STREAMING_LC3(0, 0, 0x1, 0x1)
 #define STR_AC5		DISC_AC5, STR_SNK_SRC_STREAMING_LC3(0, 0, 0x22, 0x2)
+#define STR_AC7i	DISC_AC7i, STR_SNK_SRC_STREAMING_LC3(0, 1, 0x4, 0x4)
 
 /* BAP.TS 4.10.4 configurations */
 #define DISC_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
@@ -9329,8 +9330,10 @@ static struct test_config cfg_str_ac5 = {
 static struct test_config cfg_str_ac7i = {
 	.snk = true,
 	.src = true,
+	.streams = 2,
 	.snk_locations = { 0x4, -1 },
 	.src_locations = { 0x4, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
 static struct test_config cfg_str_vs_ac7i = {
@@ -9468,8 +9471,6 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 	unsigned int payload;
 	ssize_t err;
 
-	tester_debug("streaming stream %p", stream);
-
 	io = bt_bap_stream_get_io(stream);
 	if (!io)
 		tester_test_fail_return();
@@ -9480,10 +9481,13 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 	fd2 = data->fds[qos->ucast.cis_id][1];
 	g_assert(fd == data->fds[qos->ucast.cis_id][0]);
 
+	tester_debug("streaming stream %p fd:%d -> %d", stream, fd, fd2);
+
 	/* NB: dummy data, LC3 packet encoding/decoding out of scope */
 
 	switch (bt_bap_stream_get_dir(stream)) {
 	case BT_BAP_SINK:
+		err = write(fd, &idx, sizeof(idx));
 		err = write(fd, &idx, sizeof(idx));
 		g_assert(err == sizeof(idx));
 
@@ -9491,6 +9495,7 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 		g_assert(err == sizeof(payload));
 		break;
 	case BT_BAP_SOURCE:
+		err = write(fd2, &idx, sizeof(idx));
 		err = write(fd2, &idx, sizeof(idx));
 		g_assert(err == sizeof(idx));
 
@@ -9548,17 +9553,24 @@ static int streaming_ucl_create_io(struct bt_bap_stream *stream,
 		return qos[1]->ucast.cis_id;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(data->fds); ++i) {
-		if (data->fds[i][0] > 0)
-			continue;
+	i = qos[0] ? qos[0]->ucast.cis_id : qos[1]->ucast.cis_id;
 
-		if (qos[0])
-			qos[0]->ucast.cis_id = i;
-		if (qos[1])
-			qos[1]->ucast.cis_id = i;
-		break;
+	if (i == BT_ISO_QOS_CIG_UNSET) {
+		for (i = 0; i < ARRAY_SIZE(data->fds); ++i) {
+			if (data->fds[i][0] > 0)
+				continue;
+
+			if (qos[0])
+				qos[0]->ucast.cis_id = i;
+			if (qos[1])
+				qos[1]->ucast.cis_id = i;
+			break;
+		}
 	}
+
 	g_assert(i < ARRAY_SIZE(data->fds));
+	g_assert(data->fds[i][0] <= 0);
+	g_assert(data->fds[i][1] <= 0);
 
 	err = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, data->fds[i]);
 	g_assert(err == 0);
@@ -9640,6 +9652,19 @@ static void test_select_cb(struct bt_bap_pac *pac, int err,
 	tester_debug("new stream %p", stream);
 
 	queue_push_tail(data->streams, stream);
+
+	if (!data->cfg->streams) {
+		qos->ucast.cig_id = BT_ISO_QOS_CIG_UNSET;
+		qos->ucast.cis_id = BT_ISO_QOS_CIG_UNSET;
+	} else {
+		/* All streams to separate CIS.
+		 *
+		 * There is no difference in PACS for AC 4 and AC 7(i), so which
+		 * one to use has to be specified OOB like this.
+		 */
+		qos->ucast.cig_id = 0;
+		qos->ucast.cis_id = sdata->stream_idx;
+	}
 
 	err = bt_bap_stream_config(stream, qos, caps, NULL, NULL);
 	if (!err)
@@ -9880,7 +9905,7 @@ static void test_ucl_select(void)
 		&cfg_str_ac5, STR_AC5);
 	define_test("BAP/UCL/STR/BV-525-C [UCL, AC 7(i), Generic]",
 		test_setup, test_select,
-		&cfg_str_ac7i, DISC_AC7i);
+		&cfg_str_ac7i, STR_AC7i);
 
 	define_test("BAP/UCL/STR/BV-231-C [UCL, AC 7, VS]",
 		test_setup, test_select,
