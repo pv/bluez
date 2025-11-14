@@ -3646,19 +3646,26 @@ static struct test_config cfg_src_enable = {
  *   Handle: 0x001c
  *     Data: 030300000403020100
  */
-#define SRC_ENABLE_IDX(idx, cis) \
-	IOV_DATA(0x52, 0x22, 0x00, 0x03, 0x01, 0x03 + idx, \
-			0x04, 0x03, 0x02, 0x01, 00), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x03, 0x01, 0x03 + idx, 0x00, 0x00), \
+#define SRC_ENABLE_TAIL(i) \
+	SRC_ID(i), 0x04, 0x03, 0x02, 0x01, 00
+
+#define SRC_ENABLE_IDX(i) \
+	IOV_DATA(ENABLE_HEAD(1), SRC_ENABLE_TAIL(i)), \
+	IOV_DATA(0x1b, CP_HND, 0x03, 0x01, SRC_ID(i), 0x00, 0x00)
+
+#define SRC_ENABLE_NOTIFY_IDX(i, cis) \
 	IOV_NULL, \
-	IOV_DATA(0x1b, 0x1c, 0x00, 0x03 + idx, 0x03, \
+	IOV_DATA(0x1b, SRC_HND(i), SRC_ID(i), 0x03, \
 			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
 
-#define SRC_ENABLE	SRC_ENABLE_IDX(0, 0)
+#define SRC_ENABLE \
+	SRC_ENABLE_IDX(0, 0), \
+	SRC_ENABLE_NOTIFY_IDX(0, 0)
 
 #define SCC_SRC_ENABLE \
 	SCC_SRC_16_2_1, \
-	SRC_ENABLE_IDX(0, 0)
+	SRC_ENABLE_IDX(0, 0), \
+	SRC_ENABLE_NOTIFY_IDX(0, 0)
 
 /* Test Purpose:
  * Verify that a Unicast Client IUT can initiate an Enable operation for an ASE
@@ -3723,17 +3730,30 @@ static struct test_config cfg_snk_disable = {
  *   Handle: 0x0016
  *     Data: 01010102010a00204e00409c00204e00409c00_qos
  */
-#define ASE_SNK_DISABLE \
-	IOV_DATA(0x52, 0x22, 0x00, 0x05, 0x01, 0x01), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x05, 0x01, 0x01, 0x00, 0x00), \
+
+#define DISABLE_HEAD(count) \
+	0x52, CP_HND, 0x05, (count)
+
+#define SNK_DISABLE_TAIL(i) SNK_ID(i)
+
+#define SNK_DISABLE_IDX(i) \
+	IOV_DATA(DISABLE_HEAD(1), SNK_DISABLE_TAIL(i)), \
+	IOV_DATA(0x1b, CP_HND, 0x05, 0x01, SNK_ID(i), 0x00, 0x00)
+
+#define SNK_DISABLE_NOTIFY_IDX(i, cis) \
 	IOV_NULL, \
-	IOV_DATA(0x1b, 0x16, 0x00, 0x01, 0x02, 0x00, 0x00, 0x10, 0x27, 0x00, \
+	IOV_DATA(0x1b, SNK_HND(i), SNK_ID(i), 0x02, \
+			0x00, cis, 0x10, 0x27, 0x00, \
 			0x00, 0x02, 0x28, 0x00, 0x02, 0x0a, 0x00, 0x40, 0x9c, \
 			0x00)
 
+#define SNK_DISABLE \
+	SNK_DISABLE_IDX(0), \
+	SNK_DISABLE_NOTIFY_IDX(0, 0)
+
 #define SCC_SNK_DISABLE \
 	SCC_SNK_ENABLE, \
-	ASE_SNK_DISABLE
+	SNK_DISABLE
 
 static struct test_config cfg_src_disable = {
 	.cc = LC3_CONFIG_16_2,
