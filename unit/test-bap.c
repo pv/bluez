@@ -9071,21 +9071,6 @@ static void test_bsrc_str(void)
 #define DISC_AC7i	DISC_SRC_ASE(0x4, 0x4, LC3_PAC_CAPS(0x01), \
 							LC3_PAC_CAPS(0x01))
 
-
-#define STR_AC3 \
-	DISC_AC3, \
-	SCC_SNK_IDX(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
-	SCC_SRC_IDX(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
-	SCC_SNK_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
-	IOV_NULL, \
-	SCC_SRC_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
-	QOS_SRC(QOS_SRC_8_1_1_DATA), \
-	SRC_ENABLE, \
-	SRC_START, \
-	QOS_SNK(QOS_SRC_8_1_1_DATA), \
-	SNK_ENABLE, \
-	SNK_START_IDX(0, 0)
-
 /* BAP.TS 4.10.4 configurations */
 #define DISC_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
 							VS_PAC_CAPS(0x01))
@@ -9216,7 +9201,6 @@ static struct test_config cfg_str_ac3 = {
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { 0x1, -1 },
-	.qos = LC3_QOS_8_1_1,
 };
 
 static struct test_config cfg_str_ac5 = {
@@ -9530,7 +9514,6 @@ static void test_select_cb(struct bt_bap_pac *pac, int err,
 
 	if (!data->cfg->qos.ucast.target_latency) {
 		tester_warn("TODO: implement streaming test");
-		tester_test_passed();
 		return;
 	}
 
@@ -9594,6 +9577,9 @@ static void bap_select_ready(struct bt_bap *bap, void *user_data)
 	if (i < ARRAY_SIZE(cfg->src_locations) &&
 			cfg->src_locations[i] != (uint32_t)-1)
 		tester_test_fail_return();
+
+	if (!sdata.data->cfg->qos.ucast.target_latency)
+		tester_test_passed();
 }
 
 static int pac_select(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
@@ -9771,9 +9757,11 @@ static void test_ucl_select(void)
 		test_setup, test_select,
 		&cfg_str_ac4_2, STR_AC4_2c);
 
+	/* TODO: streaming tests for the ones below */
+
 	define_test("BAP/UCL/STR/BV-523-C [UCL, AC 3, Generic]",
 		test_setup, test_select,
-		&cfg_str_ac3, STR_AC3);
+		&cfg_str_ac3, DISC_AC3);
 	define_test("BAP/UCL/STR/BV-524-C [UCL, AC 5, Generic]",
 		test_setup, test_select,
 		&cfg_str_ac5, DISC_AC5);
