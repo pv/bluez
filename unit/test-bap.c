@@ -2398,14 +2398,24 @@ static struct test_config cfg_snk_48_6_1 = {
  *   Handle: 0x0016
  *     Data: 01010102010a00204e00409c00204e00409c00_qos
  */
-#define QOS_SNK_IDX(idx, cis, _qos...) \
-	IOV_DATA(0x52, 0x22, 0x00, 0x02, 0x01, 0x01 + idx, 0x00, 0x00, _qos), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x02, 0x01, 0x01 + idx, 0x00, 0x00), \
-	IOV_NULL, \
-	IOV_DATA(0x1b, 0x16 + 3*idx, 0x00, 0x01 + idx, 0x02, \
-		0x00, cis, _qos)
 
-#define QOS_SNK(_qos...) QOS_SNK_IDX(0, 0, _qos)
+#define QOS_PDU(count) \
+	0x52, CP_HND, 0x02, (count)
+
+#define QOS_PDU_SNK(i, cis, _qos...) \
+	SNK_ID(i), 0x00, cis, _qos
+
+#define QOS_SNK_IDX(i, cis, _qos...) \
+	IOV_DATA(QOS_PDU(1), QOS_PDU_SNK(i, cis, _qos)), \
+	IOV_DATA(0x1b, CP_HND, 0x02, 0x01, SNK_ID(i), 0x00, 0x00)
+
+#define QOS_SNK_NOTIFY_IDX(i, cis, _qos...) \
+	IOV_NULL, \
+	IOV_DATA(0x1b, SNK_HND(i), SNK_ID(i), 0x02, 0x00, cis, _qos)
+
+#define QOS_SNK(_qos...) \
+	QOS_SNK_IDX(0, 0, _qos), \
+	QOS_SNK_NOTIFY_IDX(0, 0, _qos)
 
 #define SCC_SNK_8_1_1 \
 	SCC_SNK_8_1, \
@@ -2609,9 +2619,6 @@ static struct test_config cfg_src_48_6_1 = {
  *   Handle: 0x001c
  *     Data: 03010102010a00204e00409c00204e00409c00_qos
  */
-
-#define QOS_PDU(count) \
-	0x52, CP_HND, 0x02, (count)
 
 #define QOS_PDU_SRC(i, cis, _qos...) \
 	SRC_ID(i), 0x00, cis, _qos
@@ -9173,6 +9180,10 @@ static void test_bsrc_str(void)
 							LC3_PAC_CAPS(0x01))
 #define DISC_AC7i	DISC_SRC_ASE(0x4, 0x4, LC3_PAC_CAPS(0x01), \
 							LC3_PAC_CAPS(0x01))
+
+#define STR_AC3	\
+	DISC_AC3, \
+	QOS_SNK
 
 /* BAP.TS 4.10.4 configurations */
 #define DISC_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
