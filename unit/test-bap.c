@@ -1510,7 +1510,9 @@ static void test_disc(void)
  *     Data: 01010002010a00204e00409c00204e00409c00_cfg
  */
 #define SCC_SNK_IDX(idx, _cfg...) \
-	IOV_DATA(0x52, 0x22, 0x00, 0x01, 0x01, 0x01 + idx, 0x02, 0x02, _cfg), \
+	IOV_DATA(0x52, 0x22, 0x00, 0x01, 0x01, 0x01 + idx, 0x02, 0x02, _cfg)
+
+#define SCC_SNK_IDX_REPLY(idx, _cfg...) \
 	IOV_DATA(0x1b, 0x22, 0x00, 0x01, 0x01, 0x01 + idx, 0x00, 0x00), \
 	IOV_NULL, \
 	IOV_DATA(0x1b, 0x16 + 3*idx, 0x00, 0x01 + idx, 0x01, \
@@ -1518,7 +1520,7 @@ static void test_disc(void)
 			0x20, 0x4e, 0x00, 0x40, 0x9c, 0x00, 0x20, 0x4e, 0x00, \
 			0x40, 0x9c, 0x00, _cfg)
 
-#define SCC_SNK(_cfg...)	SCC_SNK_IDX(0, _cfg)
+#define SCC_SNK(_cfg...)	SCC_SNK_IDX(0, _cfg), SCC_SNK_IDX_REPLY(0, _cfg)
 
 #define LC3_CODEC_ID_DATA \
 	0x06, 0x00, 0x00, 0x00, 0x00
@@ -1708,14 +1710,16 @@ static struct test_config cfg_snk_48_6 = {
  */
 #define SCC_SRC_IDX(idx, _cfg...) \
 	IOV_DATA(0x52, 0x22, 0x00, 0x01, 0x01, 0x3 + idx, 0x02, 0x02, _cfg), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x01, 0x01, 0x3 + idx, 0x00, 0x00), \
+	IOV_DATA(0x1b, 0x22, 0x00, 0x01, 0x01, 0x3 + idx, 0x00, 0x00)
+
+#define SCC_SRC_IDX_REPLY(idx, _cfg...) \
 	IOV_NULL, \
 	IOV_DATA(0x1b, 0x1c + 3*idx, \
 			0x00, 0x03, 0x01, 0x00, 0x02, 0x01, 0x0a, 0x00,	\
 			0x20, 0x4e, 0x00, 0x40, 0x9c, 0x00, 0x20, 0x4e, 0x00, \
 			0x40, 0x9c, 0x00, _cfg)
 
-#define SCC_SRC(_cfg...)	SCC_SRC_IDX(0, _cfg)
+#define SCC_SRC(_cfg...)	SCC_SRC_IDX(0, _cfg), SCC_SRC_IDX_REPLY(0, _cfg)
 
 #define SCC_SRC_LC3(_cc...) \
 	DISC_SRC_ASE_LC3, \
@@ -8945,205 +8949,291 @@ static void test_bsrc_str(void)
 #define UNKNOWN_PAC_CAPS \
 	0xff, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00
 
-/* BAP.TS 4.10.1 configurations */
-#define DISC_SELECT_SNK(loc, caps) \
+#define DISC_SNK_ONLY(loc, caps) \
 	DISC_SRC_ASE(loc, 0, IOV_CONTENT(caps), UNKNOWN_PAC_CAPS)
 
-#define DISC_SELECT_SNK_NO_LOC(caps) \
+#define DISC_SNK_ONLY_NO_LOC(caps) \
 	DISC_SRC_ASE_NO_LOCATION(IOV_CONTENT(caps), UNKNOWN_PAC_CAPS)
 
-#define DISC_SELECT_SRC(loc, caps) \
+#define DISC_SRC_ONLY(loc, caps) \
 	DISC_SRC_ASE(0, loc, UNKNOWN_PAC_CAPS, IOV_CONTENT(caps))
 
-#define DISC_SELECT_SRC_NO_LOC(caps) \
+#define DISC_SRC_ONLY_NO_LOC(caps) \
 	DISC_SRC_ASE_NO_LOCATION(UNKNOWN_PAC_CAPS, IOV_CONTENT(caps))
 
-#define DISC_SELECT_LC3_AC1_0a	DISC_SELECT_SNK(0, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC1_0b	DISC_SELECT_SNK(0, LC3_PAC_CAPS_NO_COUNT)
-#define DISC_SELECT_LC3_AC1_0c	DISC_SELECT_SNK_NO_LOC(LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC1_0d	DISC_SELECT_SNK_NO_LOC(LC3_PAC_CAPS_NO_COUNT)
+#define STR_SCC_DATA(codec_id, challoc) \
+	/* NOTE: only channel allocation in CC for simplicity */ \
+	codec_id, 0x06, 0x05, 0x03, \
+	challoc & 0xff, (challoc >> 8) & 0xff, \
+	(challoc >> 16) & 0xff, (challoc >> 24) & 0xff
 
-#define DISC_SELECT_LC3_AC1_1	DISC_SELECT_SNK(0x2, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC1_1a	DISC_SELECT_SNK(0x2, LC3_PAC_CAPS(0x03))
-#define DISC_SELECT_LC3_AC1_1b	DISC_SELECT_SNK(0x22, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC1_1c	DISC_SELECT_SNK(0x22, LC3_PAC_CAPS(0x03))
+#define STR_SNK_STREAMING(codec_id, challoc) \
+	SCC_SNK_IDX(0, STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+	SCC_SNK_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+	QOS_SNK(QOS_SRC_8_1_1_DATA), \
+	SNK_ENABLE, \
+	SNK_START_IDX(0, 0)
 
-#define DISC_SELECT_LC3_AC4_2	DISC_SELECT_SNK(0x44, LC3_PAC_CAPS(0x02))
-#define DISC_SELECT_LC3_AC4_2a	DISC_SELECT_SNK(0x44, LC3_PAC_CAPS(0x03))
-#define DISC_SELECT_LC3_AC4_2b	DISC_SELECT_SNK(0x444, LC3_PAC_CAPS(0x02))
-#define DISC_SELECT_LC3_AC4_2c	DISC_SELECT_SNK(0x444, LC3_PAC_CAPS(0x03))
+#define STR_SRC_STREAMING(codec_id, challoc) \
+	SCC_SRC_IDX(0, STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+	SCC_SRC_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
+	QOS_SRC(QOS_SRC_8_1_1_DATA), \
+	SRC_ENABLE, \
+	SRC_START
 
-#define DISC_SELECT_LC3_AC2_0a	DISC_SELECT_SRC(0, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC2_0b	DISC_SELECT_SRC(0, LC3_PAC_CAPS_NO_COUNT)
-#define DISC_SELECT_LC3_AC2_0c	DISC_SELECT_SRC_NO_LOC(LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC2_0d	DISC_SELECT_SRC_NO_LOC(LC3_PAC_CAPS_NO_COUNT)
+#define STR_SNK_STREAMING_LC3(challoc) \
+	STR_SNK_STREAMING(IOV_CONTENT(LC3_CODEC_ID_DATA), challoc)
 
-#define DISC_SELECT_LC3_AC2_1	DISC_SELECT_SRC(0x2, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC2_1a	DISC_SELECT_SRC(0x2, LC3_PAC_CAPS(0x03))
-#define DISC_SELECT_LC3_AC2_1b	DISC_SELECT_SRC(0x22, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC2_1c	DISC_SELECT_SRC(0x22, LC3_PAC_CAPS(0x03))
+#define STR_SRC_STREAMING_LC3(challoc) \
+	STR_SRC_STREAMING(IOV_CONTENT(LC3_CODEC_ID_DATA), challoc)
 
-#define DISC_SELECT_LC3_AC10_2	DISC_SELECT_SRC(0x44, LC3_PAC_CAPS(0x02))
-#define DISC_SELECT_LC3_AC10_2a	DISC_SELECT_SRC(0x44, LC3_PAC_CAPS(0x03))
-#define DISC_SELECT_LC3_AC10_2b	DISC_SELECT_SRC(0x444, LC3_PAC_CAPS(0x02))
-#define DISC_SELECT_LC3_AC10_2c	DISC_SELECT_SRC(0x444, LC3_PAC_CAPS(0x03))
+
+/* BAP.TS 4.10.1 configurations */
+#define DISC_AC1_0a	DISC_SNK_ONLY(0, LC3_PAC_CAPS(0x01))
+#define DISC_AC1_0b	DISC_SNK_ONLY(0, LC3_PAC_CAPS_NO_COUNT)
+#define DISC_AC1_0c	DISC_SNK_ONLY_NO_LOC(LC3_PAC_CAPS(0x01))
+#define DISC_AC1_0d	DISC_SNK_ONLY_NO_LOC(LC3_PAC_CAPS_NO_COUNT)
+
+#define STR_AC1_0a	DISC_AC1_0a, STR_SNK_STREAMING_LC3(0)
+#define STR_AC1_0b	DISC_AC1_0b, STR_SNK_STREAMING_LC3(0)
+#define STR_AC1_0c	DISC_AC1_0c, STR_SNK_STREAMING_LC3(0)
+#define STR_AC1_0d	DISC_AC1_0d, STR_SNK_STREAMING_LC3(0)
+
+#define DISC_AC1_1	DISC_SNK_ONLY(0x2, LC3_PAC_CAPS(0x01))
+#define DISC_AC1_1a	DISC_SNK_ONLY(0x2, LC3_PAC_CAPS(0x03))
+#define DISC_AC1_1b	DISC_SNK_ONLY(0x22, LC3_PAC_CAPS(0x01))
+#define DISC_AC1_1c	DISC_SNK_ONLY(0x22, LC3_PAC_CAPS(0x03))
+
+#define STR_AC1_1	DISC_AC1_1, STR_SNK_STREAMING_LC3(0x2)
+#define STR_AC1_1a	DISC_AC1_1a, STR_SNK_STREAMING_LC3(0x2)
+#define STR_AC1_1b	DISC_AC1_1b, STR_SNK_STREAMING_LC3(0x2)
+#define STR_AC1_1c	DISC_AC1_1c, STR_SNK_STREAMING_LC3(0x2)
+
+#define DISC_AC4_2	DISC_SNK_ONLY(0x44, LC3_PAC_CAPS(0x02))
+#define DISC_AC4_2a	DISC_SNK_ONLY(0x44, LC3_PAC_CAPS(0x03))
+#define DISC_AC4_2b	DISC_SNK_ONLY(0x444, LC3_PAC_CAPS(0x02))
+#define DISC_AC4_2c	DISC_SNK_ONLY(0x444, LC3_PAC_CAPS(0x03))
+
+#define STR_AC4_2	DISC_AC4_2, STR_SNK_STREAMING_LC3(0x44)
+#define STR_AC4_2a	DISC_AC4_2a, STR_SNK_STREAMING_LC3(0x44)
+#define STR_AC4_2b	DISC_AC4_2b, STR_SNK_STREAMING_LC3(0x44)
+#define STR_AC4_2c	DISC_AC4_2c, STR_SNK_STREAMING_LC3(0x44)
+
+#define DISC_AC2_0a	DISC_SRC_ONLY(0, LC3_PAC_CAPS(0x01))
+#define DISC_AC2_0b	DISC_SRC_ONLY(0, LC3_PAC_CAPS_NO_COUNT)
+#define DISC_AC2_0c	DISC_SRC_ONLY_NO_LOC(LC3_PAC_CAPS(0x01))
+#define DISC_AC2_0d	DISC_SRC_ONLY_NO_LOC(LC3_PAC_CAPS_NO_COUNT)
+
+#define STR_AC2_0a	DISC_AC2_0a, STR_SRC_STREAMING_LC3(0)
+#define STR_AC2_0b	DISC_AC2_0b, STR_SRC_STREAMING_LC3(0)
+#define STR_AC2_0c	DISC_AC2_0c, STR_SRC_STREAMING_LC3(0)
+#define STR_AC2_0d	DISC_AC2_0d, STR_SRC_STREAMING_LC3(0)
+
+#define DISC_AC2_1	DISC_SRC_ONLY(0x2, LC3_PAC_CAPS(0x01))
+#define DISC_AC2_1a	DISC_SRC_ONLY(0x2, LC3_PAC_CAPS(0x03))
+#define DISC_AC2_1b	DISC_SRC_ONLY(0x22, LC3_PAC_CAPS(0x01))
+#define DISC_AC2_1c	DISC_SRC_ONLY(0x22, LC3_PAC_CAPS(0x03))
+
+#define STR_AC2_1	DISC_AC2_1, STR_SRC_STREAMING_LC3(0x2)
+#define STR_AC2_1a	DISC_AC2_1a, STR_SRC_STREAMING_LC3(0x2)
+#define STR_AC2_1b	DISC_AC2_1b, STR_SRC_STREAMING_LC3(0x2)
+#define STR_AC2_1c	DISC_AC2_1c, STR_SRC_STREAMING_LC3(0x2)
+
+#define DISC_AC10_2	DISC_SRC_ONLY(0x44, LC3_PAC_CAPS(0x02))
+#define DISC_AC10_2a	DISC_SRC_ONLY(0x44, LC3_PAC_CAPS(0x03))
+#define DISC_AC10_2b	DISC_SRC_ONLY(0x444, LC3_PAC_CAPS(0x02))
+#define DISC_AC10_2c	DISC_SRC_ONLY(0x444, LC3_PAC_CAPS(0x03))
+
+#define STR_AC10_2	DISC_AC10_2, STR_SRC_STREAMING_LC3(0x44)
+#define STR_AC10_2a	DISC_AC10_2a, STR_SRC_STREAMING_LC3(0x44)
+#define STR_AC10_2b	DISC_AC10_2b, STR_SRC_STREAMING_LC3(0x44)
+#define STR_AC10_2c	DISC_AC10_2c, STR_SRC_STREAMING_LC3(0x44)
 
 /* BAP.TS 4.10.2 configurations */
-#define DISC_SELECT_VS_AC1_1	DISC_SELECT_SNK(0x2, VS_PAC_CAPS_NO_COUNT)
-#define DISC_SELECT_VS_AC1_2	DISC_SELECT_SNK(0x44, VS_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC2_1	DISC_SELECT_SRC(0x2, VS_PAC_CAPS_NO_COUNT)
-#define DISC_SELECT_VS_AC2_2	DISC_SELECT_SRC(0x44, VS_PAC_CAPS(0x01))
+#define DISC_VS_AC1_1	DISC_SNK_ONLY(0x2, VS_PAC_CAPS_NO_COUNT)
+#define DISC_VS_AC1_2	DISC_SNK_ONLY(0x44, VS_PAC_CAPS(0x01))
+#define DISC_VS_AC2_1	DISC_SRC_ONLY(0x2, VS_PAC_CAPS_NO_COUNT)
+#define DISC_VS_AC2_2	DISC_SRC_ONLY(0x44, VS_PAC_CAPS(0x01))
+
+#define STR_VS_AC1_1	DISC_VS_AC1_1, STR_SNK_STREAMING_LC3(0x2)
+#define STR_VS_AC1_2	DISC_VS_AC1_2, STR_SNK_STREAMING_LC3(0x4)
+#define STR_VS_AC2_1	DISC_VS_AC2_1, STR_SRC_STREAMING_LC3(0x2)
+#define STR_VS_AC2_2	DISC_VS_AC2_2, STR_SRC_STREAMING_LC3(0x4)
 
 /* BAP.TS 4.10.3 configurations
  * Assumed Channels/Locations applies only to Sink ASE, as it's supposed
  * to test AC 3, 5, 7(i)
  */
-#define DISC_SELECT_LC3_AC3	DISC_SRC_ASE(0x1, 0x1, LC3_PAC_CAPS(0x01), \
+#define DISC_AC3	DISC_SRC_ASE(0x1, 0x1, LC3_PAC_CAPS(0x01), \
 							LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC5	DISC_SRC_ASE(0x22, 0x2, LC3_PAC_CAPS(0x02), \
+#define DISC_AC5	DISC_SRC_ASE(0x22, 0x2, LC3_PAC_CAPS(0x02), \
 							LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC7i	DISC_SRC_ASE(0x4, 0x4, LC3_PAC_CAPS(0x01), \
+#define DISC_AC7i	DISC_SRC_ASE(0x4, 0x4, LC3_PAC_CAPS(0x01), \
 							LC3_PAC_CAPS(0x01))
 
+
+#define STR_AC3 \
+	DISC_AC3, \
+	SCC_SNK_IDX(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
+	SCC_SRC_IDX(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
+	SCC_SNK_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
+	IOV_NULL, \
+	SCC_SRC_IDX_REPLY(0, STR_SCC_DATA(IOV_CONTENT(IOV_CONTENT(LC3_CODEC_ID_DATA)), 0x1)), \
+	QOS_SRC(QOS_SRC_8_1_1_DATA), \
+	SRC_ENABLE, \
+	SRC_START, \
+	QOS_SNK(QOS_SRC_8_1_1_DATA), \
+	SNK_ENABLE, \
+	SNK_START_IDX(0, 0)
+
 /* BAP.TS 4.10.4 configurations */
-#define DISC_SELECT_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
+#define DISC_VS_AC3	DISC_SRC_ASE(0x1, 0x1, VS_PAC_CAPS(0x01), \
 							VS_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC5	DISC_SRC_ASE(0x22, 0x2, VS_PAC_CAPS(0x02), \
+#define DISC_VS_AC5	DISC_SRC_ASE(0x22, 0x2, VS_PAC_CAPS(0x02), \
 							VS_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC7i	DISC_SRC_ASE(0x4, 0x4, VS_PAC_CAPS(0x01), \
+#define DISC_VS_AC7i	DISC_SRC_ASE(0x4, 0x4, VS_PAC_CAPS(0x01), \
 							VS_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.5 configurations */
-#define DISC_SELECT_LC3_AC7ii_L	DISC_SELECT_SNK(0x01, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC7ii_R	DISC_SELECT_SRC(0x10, LC3_PAC_CAPS(0x01))
+#define DISC_AC7ii_L	DISC_SNK_ONLY(0x01, LC3_PAC_CAPS(0x01))
+#define DISC_AC7ii_R	DISC_SRC_ONLY(0x10, LC3_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.6 configurations */
-#define DISC_SELECT_LC3_AC6i	DISC_SELECT_SNK(0x11, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC6i	DISC_SELECT_SNK(0x11, VS_PAC_CAPS(0x01))
+#define DISC_AC6i	DISC_SNK_ONLY(0x11, LC3_PAC_CAPS(0x01))
+#define DISC_VS_AC6i	DISC_SNK_ONLY(0x11, VS_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.7 configurations */
-#define DISC_SELECT_LC3_AC6ii_L	DISC_SELECT_SNK(0x01, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC6ii_R	DISC_SELECT_SNK(0x10, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC6ii_L	DISC_SELECT_SNK(0x01, VS_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC6ii_R	DISC_SELECT_SNK(0x10, VS_PAC_CAPS(0x01))
+#define DISC_AC6ii_L		DISC_SNK_ONLY(0x01, LC3_PAC_CAPS(0x01))
+#define DISC_AC6ii_R		DISC_SNK_ONLY(0x10, LC3_PAC_CAPS(0x01))
+#define DISC_VS_AC6ii_L		DISC_SNK_ONLY(0x01, VS_PAC_CAPS(0x01))
+#define DISC_VS_AC6ii_R		DISC_SNK_ONLY(0x10, VS_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.8 configurations */
-#define DISC_SELECT_LC3_AC9i	DISC_SELECT_SRC(0x11, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC9i	DISC_SELECT_SRC(0x11, VS_PAC_CAPS(0x01))
+#define DISC_AC9i		DISC_SRC_ONLY(0x11, LC3_PAC_CAPS(0x01))
+#define DISC_VS_AC9i		DISC_SRC_ONLY(0x11, VS_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.9 configurations */
-#define DISC_SELECT_LC3_AC9ii_L DISC_SELECT_SRC(0x01, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC9ii_R	DISC_SELECT_SRC(0x10, LC3_PAC_CAPS(0x01))
+#define DISC_AC9ii_L 		DISC_SRC_ONLY(0x01, LC3_PAC_CAPS(0x01))
+#define DISC_AC9ii_R		DISC_SRC_ONLY(0x10, LC3_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.10 configurations */
-#define DISC_SELECT_LC3_AC8i	DISC_SRC_ASE(0x11, 0x02, \
+#define DISC_AC8i		DISC_SRC_ASE(0x11, 0x02, \
 					LC3_PAC_CAPS(0x01), LC3_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.11 configurations */
-#define DISC_SELECT_LC3_AC8ii_L	DISC_SELECT_SNK(0x1, LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC8ii_R	DISC_SRC_ASE(0x10, 0x2, \
+#define DISC_AC8ii_L		DISC_SNK_ONLY(0x1, LC3_PAC_CAPS(0x01))
+#define DISC_AC8ii_R		DISC_SRC_ASE(0x10, 0x2, \
 					LC3_PAC_CAPS(0x01), LC3_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.12 configurations */
-#define DISC_SELECT_LC3_AC11i	DISC_SRC_ASE(0x11, 0x22, \
+#define DISC_AC11i		DISC_SRC_ASE(0x11, 0x22, \
 					LC3_PAC_CAPS(0x01), LC3_PAC_CAPS(0x01))
 
 /* BAP.TS 4.10.13 configurations */
-#define DISC_SELECT_LC3_AC11ii_L DISC_SRC_ASE(0x01, 0x02, \
+#define DISC_AC11ii_L		DISC_SRC_ASE(0x01, 0x02, \
 					LC3_PAC_CAPS(0x01), LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_LC3_AC11ii_R DISC_SRC_ASE(0x10, 0x20, \
+#define DISC_AC11ii_R		DISC_SRC_ASE(0x10, 0x20, \
 					LC3_PAC_CAPS(0x01), LC3_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC11i_L	DISC_SRC_ASE(0x01, 0x02, \
+#define DISC_VS_AC11i_L		DISC_SRC_ASE(0x01, 0x02, \
 					VS_PAC_CAPS(0x01), VS_PAC_CAPS(0x01))
-#define DISC_SELECT_VS_AC11i_R	DISC_SRC_ASE(0x10, 0x20, \
+#define DISC_VS_AC11i_R		DISC_SRC_ASE(0x10, 0x20, \
 					VS_PAC_CAPS(0x01), VS_PAC_CAPS(0x01))
 
 /* Expected bt_bap_select() results */
 
-static struct test_config cfg_select_ac1_0ab = {
+static struct test_config cfg_str_ac1_0ab = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0, -1 },
 	.src_locations = { -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac1_0cd = {
+static struct test_config cfg_str_ac1_0cd = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0, -1 },
 	.src_locations = { -1 },
 	.setup_data = setup_data_no_location,
 	.setup_data_len = ARRAY_SIZE(setup_data_no_location),
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac1_1 = {
+static struct test_config cfg_str_ac1_1 = {
 	.snk = true,
 	.src = true,
 	.streams = 1,  /* force 1 channel; caps support also AC 4 & 6(i) */
 	.snk_locations = { 0x2, -1 },
 	.src_locations = { -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac4_2 = {
+static struct test_config cfg_str_ac4_2 = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x44, -1 },
 	.src_locations = { -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac2_0ab = {
+static struct test_config cfg_str_ac2_0ab = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac2_0cd = {
+static struct test_config cfg_str_ac2_0cd = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0, -1 },
 	.setup_data = setup_data_no_location,
 	.setup_data_len = ARRAY_SIZE(setup_data_no_location),
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac2_1 = {
+static struct test_config cfg_str_ac2_1 = {
 	.snk = true,
 	.src = true,
 	.streams = 1,
 	.snk_locations = { -1 },
 	.src_locations = { 0x2, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac10_2 = {
+static struct test_config cfg_str_ac10_2 = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0x44, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac3 = {
+static struct test_config cfg_str_ac3 = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { 0x1, -1 },
+	.qos = LC3_QOS_8_1_1,
 };
 
-static struct test_config cfg_select_ac5 = {
+static struct test_config cfg_str_ac5 = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x22, -1 },
 	.src_locations = { 0x2, -1 },
 };
 
-static struct test_config cfg_select_ac7i = {
+static struct test_config cfg_str_ac7i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x4, -1 },
 	.src_locations = { 0x4, -1 },
 };
 
-static struct test_config cfg_select_vs_ac7i = {
+static struct test_config cfg_str_vs_ac7i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x4, -1 },
@@ -9151,84 +9241,84 @@ static struct test_config cfg_select_vs_ac7i = {
 	.vs = true,
 };
 
-static struct test_config cfg_select_ac6i = {
+static struct test_config cfg_str_ac6i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, 0x10, -1 },
 	.src_locations = { -1 },
 };
 
-static struct test_config cfg_select_ac6ii_L = {
+static struct test_config cfg_str_ac6ii_L = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { -1 },
 };
 
-static struct test_config cfg_select_ac6ii_R = {
+static struct test_config cfg_str_ac6ii_R = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x10, -1 },
 	.src_locations = { -1 },
 };
 
-static struct test_config cfg_select_ac9i = {
+static struct test_config cfg_str_ac9i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0x1, 0x10, -1 },
 };
 
-static struct test_config cfg_select_ac9ii_L = {
+static struct test_config cfg_str_ac9ii_L = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0x1, -1 },
 };
 
-static struct test_config cfg_select_ac9ii_R = {
+static struct test_config cfg_str_ac9ii_R = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { -1 },
 	.src_locations = { 0x10, -1 },
 };
 
-static struct test_config cfg_select_ac8i = {
+static struct test_config cfg_str_ac8i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, 0x10, -1 },
 	.src_locations = { 0x2, -1 },
 };
 
-static struct test_config cfg_select_ac8ii_L = {
+static struct test_config cfg_str_ac8ii_L = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { -1 },
 };
 
-static struct test_config cfg_select_ac8ii_R = {
+static struct test_config cfg_str_ac8ii_R = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x10, -1 },
 	.src_locations = { 0x2, -1 },
 };
 
-static struct test_config cfg_select_ac11i = {
+static struct test_config cfg_str_ac11i = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, 0x10, -1 },
 	.src_locations = { 0x2, 0x20, -1 },
 };
 
-static struct test_config cfg_select_ac11ii_L = {
+static struct test_config cfg_str_ac11ii_L = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x1, -1 },
 	.src_locations = { 0x2, -1 },
 };
 
-static struct test_config cfg_select_ac11ii_R = {
+static struct test_config cfg_str_ac11ii_R = {
 	.snk = true,
 	.src = true,
 	.snk_locations = { 0x10, -1 },
@@ -9237,20 +9327,20 @@ static struct test_config cfg_select_ac11ii_R = {
 
 /* Additional bt_bap_select() tests */
 
-#define DISC_SELECT_MANY \
+#define DISC_MANY \
 	DISC_SRC_ASE(0x000000ff, 0, LC3_PAC_CAPS(0xf), UNKNOWN_PAC_CAPS)
 
 static struct iovec caps_select_snk_many =
 	LC3_CAPABILITIES(LC3_FREQ_ANY, LC3_DURATION_ANY, 0x0a, 26, 240);
 
-static struct test_config cfg_select_many_2 = {
+static struct test_config cfg_str_many_2 = {
 	.snk = true,
 	.snk_locations = { 0x00000003, -1 },
 	.src_locations = { -1 },
 	.pac_caps = &caps_select_snk_many,
 };
 
-static struct test_config cfg_select_many_8 = {
+static struct test_config cfg_str_many_8 = {
 	.snk = true,
 	.streams = 8,
 	.snk_locations = { 0x0000000f, 0x000000f0, -1 },
@@ -9265,7 +9355,7 @@ struct test_select_data {
 	uint32_t src_locations[4];
 	uint32_t snk_locations[4];
 	struct bt_bap_pac *rpac;
-	unsigned int stream_idx;
+	int stream_idx;
 };
 
 static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
@@ -9290,6 +9380,8 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 	fd2 = data->fds[qos->ucast.cis_id][1];
 	g_assert(fd == data->fds[qos->ucast.cis_id][0]);
 
+	/* NB: dummy data, LC3 packet encoding/decoding out of scope */
+
 	switch (bt_bap_stream_get_dir(stream)) {
 	case BT_BAP_SINK:
 		err = write(fd, &idx, sizeof(idx));
@@ -9309,6 +9401,8 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 		tester_test_fail_return();
 	}
 
+	tester_debug("stream %p: streaming %u => %u", stream, idx, payload);
+
 	if (payload != idx)
 		tester_test_fail_return();
 
@@ -9320,42 +9414,40 @@ static void streaming_ucl_do_stream(struct bt_bap_stream *stream,
 		tester_test_passed();
 }
 
-static void streaming_ucl_connected(struct bt_bap_stream *stream,
+static void streaming_ucl_connect(struct bt_bap_stream *stream,
 						struct test_data *data)
 {
 	int fd;
-	int err;
 
-	tester_debug("connected stream %p", stream);
+	tester_debug("connect stream %p", stream);
 
 	if (!bt_bap_stream_io_is_connecting(stream, &fd))
 		return;
 
-	err = bt_bap_stream_set_io(stream, fd);
-	if (err)
+	if (!bt_bap_stream_set_io(stream, fd))
 		tester_test_fail_return();
 
 	data->id++;
 }
 
-static void streaming_ucl_connect(struct bt_bap_stream *stream,
+static int streaming_ucl_create_io(struct bt_bap_stream *stream,
 						struct test_data *data)
 {
 	struct bt_bap_qos *qos[2] = {};
 	unsigned int i;
 	int err;
 
-	tester_debug("connect stream %p", stream);
+	tester_debug("create io stream %p", stream);
 
 	if (bt_bap_stream_get_io(stream))
-		tester_test_fail_return();
-	if (bt_bap_stream_io_is_connecting(stream, NULL))
-		return;
+		tester_test_fail_return(-EINVAL);
 	if (!bt_bap_stream_io_get_qos(stream, &qos[0], &qos[1]))
-		tester_test_fail_return();
-
-	g_assert(!qos[0] || qos[0]->ucast.cis_id == BT_ISO_QOS_CIS_UNSET);
-	g_assert(!qos[1] || qos[1]->ucast.cis_id == BT_ISO_QOS_CIS_UNSET);
+		tester_test_fail_return(-EINVAL);
+	if (bt_bap_stream_io_is_connecting(stream, NULL)) {
+		if (qos[0])
+			return qos[0]->ucast.cis_id;
+		return qos[1]->ucast.cis_id;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(data->fds); ++i) {
 		if (data->fds[i][0] > 0)
@@ -9374,7 +9466,9 @@ static void streaming_ucl_connect(struct bt_bap_stream *stream,
 
 	err = bt_bap_stream_io_connecting(stream, data->fds[i][0]);
 	if (err)
-		tester_test_fail_return();
+		tester_test_fail_return(-EINVAL);
+
+	return i;
 }
 
 static void streaming_ucl_state(struct bt_bap_stream *stream,
@@ -9391,7 +9485,7 @@ static void streaming_ucl_state(struct bt_bap_stream *stream,
 	switch (new_state) {
 	case BT_BAP_STREAM_STATE_CONFIG:
 		qos.ucast.cig_id = 0;
-		qos.ucast.cis_id = BT_ISO_QOS_CIS_UNSET;
+		qos.ucast.cis_id = streaming_ucl_create_io(stream, data);
 		id = bt_bap_stream_qos(stream, &qos, NULL, NULL);
 		g_assert(id);
 		break;
@@ -9406,18 +9500,19 @@ static void streaming_ucl_state(struct bt_bap_stream *stream,
 		     			entry; entry = entry->next) {
 			struct bt_bap_stream *s = entry->data;
 
-			if (data->cfg->state == BT_BAP_STREAM_STATE_QOS)
+			if (data->cfg->state != BT_BAP_STREAM_STATE_ENABLING)
 				streaming_ucl_connect(s, data);
 
 			id = bt_bap_stream_enable(stream, false, NULL,
 							NULL, NULL);
 			g_assert(id);
+
+			bt_bap_process_queue(data->bap);
 		}
 		break;
 	case BT_BAP_STREAM_STATE_ENABLING:
 		if (data->cfg->state == BT_BAP_STREAM_STATE_ENABLING)
 			streaming_ucl_connect(stream, data);
-		streaming_ucl_connected(stream, data);
 		break;
 	case BT_BAP_STREAM_STATE_STREAMING:
 		streaming_ucl_do_stream(stream, data);
@@ -9433,6 +9528,12 @@ static void test_select_cb(struct bt_bap_pac *pac, int err,
 	struct test_data *data = sdata->data;
 	struct bt_bap_stream *stream;
 
+	if (!data->cfg->qos.ucast.target_latency) {
+		tester_warn("TODO: implement streaming test");
+		tester_test_passed();
+		return;
+	}
+
 	data->id++;
 
 	stream = bt_bap_stream_new(data->bap, pac, sdata->rpac, qos, caps);
@@ -9442,10 +9543,14 @@ static void test_select_cb(struct bt_bap_pac *pac, int err,
 
 	queue_push_tail(data->streams, stream);
 
-	bt_bap_stream_config(stream, qos, caps, NULL, NULL);
+	err = bt_bap_stream_config(stream, qos, caps, NULL, NULL);
+	if (!err)
+		tester_test_fail_return();
 
 	bt_bap_stream_set_user_data(stream, UINT_TO_PTR(sdata->stream_idx));
 	sdata->stream_idx++;
+
+	bt_bap_process_queue(data->bap);
 }
 
 static bool test_select_pac(struct bt_bap_pac *lpac, struct bt_bap_pac *rpac,
@@ -9572,169 +9677,169 @@ static void test_ucl_select(void)
 
 	define_test("BAP/UCL/STR/BV-535-C [UCL, AC 2, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac2_1, DISC_SELECT_LC3_AC2_1);
+		&cfg_str_ac2_1, STR_AC2_1);
 	define_test("BAP/UCL/STR/BV-568-C "
 		"[UCL, AC 2, Generic, Multi Channels]",
 		test_setup, test_select,
-		&cfg_select_ac2_1, DISC_SELECT_LC3_AC2_1a);
+		&cfg_str_ac2_1, STR_AC2_1a);
 	define_test("BAP/UCL/STR/BV-569-C "
 		"[UCL, AC 2, Generic, Multi Location]",
 		test_setup, test_select,
-		&cfg_select_ac2_1, DISC_SELECT_LC3_AC2_1b);
+		&cfg_str_ac2_1, STR_AC2_1b);
 	define_test("BAP/UCL/STR/BV-570-C "
 		"[UCL, AC 2, Generic, Multi Channels and Location]",
 		test_setup, test_select,
-		&cfg_select_ac2_1, DISC_SELECT_LC3_AC2_1c);
+		&cfg_str_ac2_1, STR_AC2_1c);
 	define_test("BAP/UCL/STR/BV-552-C [UCL, AC 2, Generic, Mono]",
 		test_setup, test_select,
-		&cfg_select_ac2_0ab, DISC_SELECT_LC3_AC2_0a);
+		&cfg_str_ac2_0ab, STR_AC2_0a);
 	define_test("BAP/UCL/STR/BV-553-C "
 		"[UCL, AC 2, Generic, Mono, Default Ch Count]",
 		test_setup, test_select,
-		&cfg_select_ac2_0ab, DISC_SELECT_LC3_AC2_0b);
+		&cfg_str_ac2_0ab, STR_AC2_0b);
 	define_test("BAP/UCL/STR/BV-554-C "
 		"[UCL, AC 2, Generic, Mono, No PACS]",
 		test_setup, test_select,
-		&cfg_select_ac2_0cd, DISC_SELECT_LC3_AC2_0c);
+		&cfg_str_ac2_0cd, STR_AC2_0c);
 	define_test("BAP/UCL/STR/BV-555-C "
 		"[UCL, AC 2,Generic, Mono, Default Ch Count, No PACS]",
 		test_setup, test_select,
-		&cfg_select_ac2_0cd, DISC_SELECT_LC3_AC2_0d);
+		&cfg_str_ac2_0cd, STR_AC2_0d);
 
 	define_test("BAP/UCL/STR/BV-536-C [UCL, AC 10, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac10_2, DISC_SELECT_LC3_AC10_2);
+		&cfg_str_ac10_2, STR_AC10_2);
 	define_test("BAP/UCL/STR/BV-571-C "
 		"[UCL, AC 10, Generic, Multi Channels]",
 		test_setup, test_select,
-		&cfg_select_ac10_2, DISC_SELECT_LC3_AC10_2a);
+		&cfg_str_ac10_2, STR_AC10_2a);
 	define_test("BAP/UCL/STR/BV-572-C "
 		"[UCL, AC 10, Generic, Multi Location]",
 		test_setup, test_select,
-		&cfg_select_ac10_2, DISC_SELECT_LC3_AC10_2b);
+		&cfg_str_ac10_2, STR_AC10_2b);
 	define_test("BAP/UCL/STR/BV-573-C "
 		"[UCL, AC 10, Generic, Multi Channels and Location]",
 		test_setup, test_select,
-		&cfg_select_ac10_2, DISC_SELECT_LC3_AC10_2c);
+		&cfg_str_ac10_2, STR_AC10_2c);
 
 	define_test("BAP/UCL/STR/BV-537-C [UCL SRC, AC 1, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac1_1, DISC_SELECT_LC3_AC1_1);
+		&cfg_str_ac1_1, STR_AC1_1);
 	define_test("BAP/UCL/STR/BV-574-C "
 		"[UCL, AC 1, Generic, Multi Channels]",
 		test_setup, test_select,
-		&cfg_select_ac1_1, DISC_SELECT_LC3_AC1_1a);
+		&cfg_str_ac1_1, STR_AC1_1a);
 	define_test("BAP/UCL/STR/BV-575-C "
 		"[UCL, AC 1, Generic, Multi Location]",
 		test_setup, test_select,
-		&cfg_select_ac1_1, DISC_SELECT_LC3_AC1_1b);
+		&cfg_str_ac1_1, STR_AC1_1b);
 	define_test("BAP/UCL/STR/BV-576-C "
 		"[UCL, AC 1, Generic, Multi Channels and Location]",
 		test_setup, test_select,
-		&cfg_select_ac1_1, DISC_SELECT_LC3_AC1_1c);
+		&cfg_str_ac1_1, STR_AC1_1c);
 
 	define_test("BAP/UCL/STR/BV-556-C "
 		"[UCL SRC, AC 1, Generic, Mono]",
 		test_setup, test_select,
-		&cfg_select_ac1_0ab, DISC_SELECT_LC3_AC1_0a);
+		&cfg_str_ac1_0ab, STR_AC1_0a);
 	define_test("BAP/UCL/STR/BV-557-C "
 		"[UCL SRC, AC 1, Generic, Mono, Default Ch Count]",
 		test_setup, test_select,
-		&cfg_select_ac1_0ab, DISC_SELECT_LC3_AC1_0b);
+		&cfg_str_ac1_0ab, STR_AC1_0b);
 	define_test("BAP/UCL/STR/BV-558-C "
 		"[UCL SRC, AC 1, Generic, Mono, No PACS]",
 		test_setup, test_select,
-		&cfg_select_ac1_0cd, DISC_SELECT_LC3_AC1_0c);
+		&cfg_str_ac1_0cd, STR_AC1_0c);
 	define_test("BAP/UCL/STR/BV-559-C "
 		"[UCL SRC, AC 1, Generic, Mono, Default Ch Count, No PACS]",
 		test_setup, test_select,
-		&cfg_select_ac1_0cd, DISC_SELECT_LC3_AC1_0d);
+		&cfg_str_ac1_0cd, STR_AC1_0d);
 
 	define_test("BAP/UCL/STR/BV-538-C [UCL SRC, AC 4, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac4_2, DISC_SELECT_LC3_AC4_2);
+		&cfg_str_ac4_2, STR_AC4_2);
 	define_test("BAP/UCL/STR/BV-577-C "
 		"[UCL, AC 4, Generic, Multi Channels]",
 		test_setup, test_select,
-		&cfg_select_ac4_2, DISC_SELECT_LC3_AC4_2a);
+		&cfg_str_ac4_2, STR_AC4_2a);
 	define_test("BAP/UCL/STR/BV-578-C "
 		"[UCL, AC 4, Generic, Multi Location]",
 		test_setup, test_select,
-		&cfg_select_ac4_2, DISC_SELECT_LC3_AC4_2b);
+		&cfg_str_ac4_2, STR_AC4_2b);
 	define_test("BAP/UCL/STR/BV-579-C "
 		"[UCL, AC 4, Generic, Multi Channels and Location]",
 		test_setup, test_select,
-		&cfg_select_ac4_2, DISC_SELECT_LC3_AC4_2c);
+		&cfg_str_ac4_2, STR_AC4_2c);
 
 	define_test("BAP/UCL/STR/BV-523-C [UCL, AC 3, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac3, DISC_SELECT_LC3_AC3);
+		&cfg_str_ac3, STR_AC3);
 	define_test("BAP/UCL/STR/BV-524-C [UCL, AC 5, Generic]",
 		test_setup, test_select,
-		&cfg_select_ac5, DISC_SELECT_LC3_AC5);
+		&cfg_str_ac5, DISC_AC5);
 	define_test("BAP/UCL/STR/BV-525-C [UCL, AC 7(i), Generic]",
 		test_setup, test_select,
-		&cfg_select_ac7i, DISC_SELECT_LC3_AC7i);
+		&cfg_str_ac7i, DISC_AC7i);
 
 	define_test("BAP/UCL/STR/BV-231-C [UCL, AC 7, VS]",
 		test_setup, test_select,
-		&cfg_select_vs_ac7i, DISC_SELECT_VS_AC7i);
+		&cfg_str_vs_ac7i, DISC_VS_AC7i);
 
 	define_test("BAP/UCL/STR/BV-527-C [UCL, AC 6(i), Generic]",
 		test_setup, test_select,
-		&cfg_select_ac6i, DISC_SELECT_LC3_AC6i);
+		&cfg_str_ac6i, DISC_AC6i);
 
 	/* TODO: combine these to a single test with two simultaneous BAP */
 	define_test("BAP/UCL/STR/BV-528-C [UCL, AC 6(ii), Generic] Left",
 		test_setup, test_select,
-		&cfg_select_ac6ii_L, DISC_SELECT_LC3_AC6ii_L);
+		&cfg_str_ac6ii_L, DISC_AC6ii_L);
 	define_test("BAP/UCL/STR/BV-528-C [UCL, AC 6(ii), Generic] Right",
 		test_setup, test_select,
-		&cfg_select_ac6ii_R, DISC_SELECT_LC3_AC6ii_R);
+		&cfg_str_ac6ii_R, DISC_AC6ii_R);
 
 	define_test("BAP/UCL/STR/BV-529-C [UCL, AC 9(i), Generic]",
 		test_setup, test_select,
-		&cfg_select_ac9i, DISC_SELECT_LC3_AC9i);
+		&cfg_str_ac9i, DISC_AC9i);
 
 	/* TODO: combine these to a single test with two simultaneous BAP */
 	define_test("BAP/UCL/STR/BV-530-C [UCL, AC 9(ii), Generic] Left",
 		test_setup, test_select,
-		&cfg_select_ac9ii_L, DISC_SELECT_LC3_AC9ii_L);
+		&cfg_str_ac9ii_L, DISC_AC9ii_L);
 	define_test("BAP/UCL/STR/BV-530-C [UCL, AC 9(ii), Generic] Right",
 		test_setup, test_select,
-		&cfg_select_ac9ii_R, DISC_SELECT_LC3_AC9ii_R);
+		&cfg_str_ac9ii_R, DISC_AC9ii_R);
 
 	define_test("BAP/UCL/STR/BV-531-C [UCL, AC 8(i), Generic]",
 		test_setup, test_select,
-		&cfg_select_ac8i, DISC_SELECT_LC3_AC8i);
+		&cfg_str_ac8i, DISC_AC8i);
 
 	/* TODO: combine these to a single test with two simultaneous BAP */
 	define_test("BAP/UCL/STR/BV-532-C [UCL, AC 8(ii), Generic] Left",
 		test_setup, test_select,
-		&cfg_select_ac8ii_L, DISC_SELECT_LC3_AC8ii_L);
+		&cfg_str_ac8ii_L, DISC_AC8ii_L);
 	define_test("BAP/UCL/STR/BV-532-C [UCL, AC 8(ii), Generic] Right",
 		test_setup, test_select,
-		&cfg_select_ac8ii_R, DISC_SELECT_LC3_AC8ii_R);
+		&cfg_str_ac8ii_R, DISC_AC8ii_R);
 
 	define_test("BAP/UCL/STR/BV-533-C [UCL, AC 11(i), Generic]",
 		test_setup, test_select,
-		&cfg_select_ac11i, DISC_SELECT_LC3_AC11i);
+		&cfg_str_ac11i, DISC_AC11i);
 
 	/* TODO: combine these to a single test with two simultaneous BAP */
 	define_test("BAP/UCL/STR/BV-534-C [UCL, AC 11(ii), Generic] Left",
 		test_setup, test_select,
-		&cfg_select_ac11ii_L, DISC_SELECT_LC3_AC11ii_L);
+		&cfg_str_ac11ii_L, DISC_AC11ii_L);
 	define_test("BAP/UCL/STR/BV-534-C [UCL, AC 11(ii), Generic] Right",
 		test_setup, test_select,
-		&cfg_select_ac11ii_R, DISC_SELECT_LC3_AC11ii_R);
+		&cfg_str_ac11ii_R, DISC_AC11ii_R);
 
 	/* Custom tests: */
 	define_test("[UCL, Custom AC, 8 -> 2 Ch, Generic]",
 		test_setup, test_select,
-		&cfg_select_many_2, DISC_SELECT_MANY);
+		&cfg_str_many_2, DISC_MANY);
 	define_test("[UCL, Custom AC, 8 -> 4+4 Ch, Generic]",
 		test_setup, test_select,
-		&cfg_select_many_8, DISC_SELECT_MANY);
+		&cfg_str_many_8, DISC_MANY);
 }
 
 int main(int argc, char *argv[])
