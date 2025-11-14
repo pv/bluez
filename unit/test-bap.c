@@ -3604,22 +3604,30 @@ static struct test_config cfg_snk_enable = {
  *     Data: 0101010300403020100
  */
 
-#define SNK_ENABLE_IDX(idx, cis) \
-	IOV_DATA(0x52, 0x22, 0x00, 0x03, 0x01, 0x01 + idx, \
-				0x04, 0x03, 0x02, 0x01, 00), \
-	IOV_DATA(0x1b, 0x22, 0x00, 0x03, 0x01, 0x01 + idx, 0x00, 0x00), \
+#define ENABLE_HEAD(count) \
+	0x52, CP_HND, 0x03, (count)
+
+#define SNK_ENABLE_TAIL(i) \
+	SNK_ID(i), 0x04, 0x03, 0x02, 0x01, 00
+
+#define SNK_ENABLE_IDX(i)			   \
+	IOV_DATA(ENABLE_HEAD(1), SNK_ENABLE_TAIL(i)), \
+	IOV_DATA(0x1b, CP_HND, 0x03, 0x01, SNK_ID(i), 0x00, 0x00)
+
+#define SNK_ENABLE_NOTIFY_IDX(i, cis) \
 	IOV_NULL, \
-	IOV_DATA(0x1b, 0x16 + 3*idx, 0x00, 0x01 + idx, 0x03, \
+	IOV_DATA(0x1b, SNK_HND(i), SNK_ID(i), 0x03, \
 			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
 
-#define SNK_START_IDX(idx, cis) \
+#define SNK_START_NOTIFY_IDX(i, cis) \
 	IOV_NULL, \
-	IOV_DATA(0x1b, 0x16 + 3*idx, 0x00, 0x01 + idx, 0x04, \
+	IOV_DATA(0x1b, SNK_HND(i), SNK_ID(i), 0x04,		\
 			0x00, cis, 0x04, 0x03, 0x02, 0x01, 0x00)
 
 #define SCC_SNK_ENABLE \
 	SCC_SNK_16_2_1, \
-	SNK_ENABLE_IDX(0, 0)
+	SNK_ENABLE_IDX(0), \
+	SNK_ENABLE_NOTIFY_IDX(0, 0)
 
 static struct test_config cfg_src_enable = {
 	.cc = LC3_CONFIG_16_2,
@@ -9031,7 +9039,7 @@ static void test_bsrc_str(void)
 	SCC_SNK(STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
 	QOS_SNK(QOS_SRC_8_1_1_DATA), \
 	SNK_ENABLE, \
-	SNK_START_IDX(0, 0)
+	SNK_START_NOTIFY_IDX(0, 0)
 
 #define STR_SRC_STREAMING(codec_id, challoc) \
 	SCC_SRC(STR_SCC_DATA(IOV_CONTENT(codec_id), challoc)), \
