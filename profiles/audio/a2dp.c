@@ -3584,7 +3584,7 @@ static void a2dp_sink_remove(struct btd_service *service)
 	sink_unregister(service);
 }
 
-static int a2dp_source_connect(struct btd_service *service)
+static void a2dp_source_ready(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
 	struct btd_adapter *adapter = device_get_adapter(dev);
@@ -3596,14 +3596,22 @@ static int a2dp_source_connect(struct btd_service *service)
 	server = find_server(servers, adapter);
 	if (!server || !server->sink_enabled) {
 		DBG("Unexpected error: cannot find server");
-		return -EPROTONOSUPPORT;
+		btd_service_connecting_complete(service, -EPROTONOSUPPORT);
+		return;
 	}
 
 	/* Return protocol not available if no record/endpoint exists */
-	if (server->sink_record_id == 0)
-		return -ENOPROTOOPT;
+	if (server->sink_record_id == 0) {
+		btd_service_connecting_complete(service, -ENOPROTOOPT);
+		return;
+	}
 
-	return source_connect(service);
+	source_connect(service);
+}
+
+static int a2dp_source_connect(struct btd_service *service)
+{
+	return 0;
 }
 
 static int a2dp_source_disconnect(struct btd_service *service)
@@ -3769,6 +3777,9 @@ static struct btd_profile a2dp_source_profile = {
 
 	.adapter_probe	= a2dp_sink_server_probe,
 	.adapter_remove	= a2dp_sink_server_remove,
+
+	.after_services = BTD_PROFILE_UUID_CB(a2dp_source_ready,
+								A2DP_SINK_UUID),
 };
 
 static struct btd_profile a2dp_sink_profile = {
