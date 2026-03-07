@@ -67,6 +67,11 @@ def pytest_addoption(parser):
         type=float,
         help="Timeout in seconds for waiting for RPC reply with VM (default: 20 s)",
     )
+    parser.addoption(
+        "--btmon",
+        action="store_true",
+        help="Launch btmon on all hosts to log events, and dump traffic to test-functional-host.*.btsnoop",
+    )
 
 
 def pytest_configure(config):
@@ -355,16 +360,24 @@ def _vm_impl(request, kernel, num_hosts, hw):
     ) as vm:
         yield vm
 
+        _close_hosts(request, vm, vm.reuse_group)
+
 
 def _hosts_impl(request, vm, setup, name, reuse):
+    from .lib import Btmon
+
     vm_timeout = request.session.config.option.vm_timeout
     timeout = vm_timeout
 
     if not reuse or vm.reuse_group != name:
-        vm.close_hosts()
+        _close_hosts(request, vm, vm.reuse_group)
 
     for h, plugins in zip(vm.hosts, setup):
         timeout = max(vm_timeout * len(plugins), timeout)
+
+        if request.session.config.option.btmon:
+            plugins = (Btmon(),) + plugins
+
         for p in plugins:
             h.start_load(p)
 
@@ -374,9 +387,27 @@ def _hosts_impl(request, vm, setup, name, reuse):
     yield vm.hosts
 
     if not reuse:
-        vm.close_hosts()
+        _close_hosts(request, vm, name)
 
     vm.reuse_group = name if reuse else None
+
+
+def _close_hosts(request, vm, name):
+    try:
+        if request.session.config.option.btmon and name is not None:
+            for h in vm.hosts:
+                if not hasattr(h, "btmon"):
+                    continue
+
+                host_name = h._name.replace("host", name)
+                filename = f"test-functional-{host_name}.btsnoop"
+
+                with open(filename, "wb") as f:
+                    f.write(h.btmon.stop())
+
+                status_log.info(f"{h._name} btmon log written to {filename!r}")
+    finally:
+        vm.close_hosts()
 
 
 @pytest.fixture(scope="package")
