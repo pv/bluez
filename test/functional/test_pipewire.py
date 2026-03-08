@@ -128,7 +128,11 @@ class Pipewire(HostPlugin):
 
         # Wait for wireplumber session services
         while True:
-            data = json.loads(self.pw_dump())
+            try:
+                data = json.loads(self.pw_dump())
+            except:
+                time.sleep(0.25)
+                continue
             for item in data:
                 if item.get("type", None) != "PipeWire:Interface:Client":
                     continue
@@ -258,7 +262,10 @@ def check_pipewire_devices_exist(host, profile="a2dp-sink"):
 
     for j in range(20):
         text = host.pipewire.pw_dump()
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except:
+            continue
 
         seen = set()
         for item in data:

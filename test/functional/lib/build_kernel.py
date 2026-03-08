@@ -12,7 +12,7 @@ tester_config = utils.SRC_DIR / "doc" / "tester.config"
 
 def run(*cmd):
     print("\n$", utils.quoted(cmd))
-    subprocess.run(cmd)
+    subprocess.run(cmd, check=True)
 
 
 def build_kernel(base_dir, upstream, branch):
