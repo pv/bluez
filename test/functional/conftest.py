@@ -73,6 +73,37 @@ def pytest_addoption(parser):
         help="Launch btmon on all hosts to log events, and dump traffic to test-functional-host.*.btsnoop",
     )
 
+    # Kernel build
+    parser.addoption(
+        "--kernel-build",
+        action="store",
+        choices=("no", "use", "auto", "force"),
+        nargs="?",
+        default="use",
+        const="auto",
+        help="Build and cache a suitable kernel image if none given (no/use/auto/force)",
+    )
+    parser.addoption(
+        "--kernel-upstream",
+        action="store",
+        default=None,
+        help="For building kernels: kernel upstream Git url",
+    )
+    parser.addoption(
+        "--kernel-branch",
+        action="store",
+        default=None,
+        help="For building kernels: kernel upstream Git branch",
+    )
+
+    parser.addini(
+        "kernel_upstream", "Kernel upstream Git url to use for building kernels"
+    )
+    parser.addini(
+        "kernel_branch",
+        "Kernel upstream Git branch /  commit to use for building custom kernel",
+    )
+
 
 def pytest_configure(config):
     if config.option.list:
@@ -82,6 +113,40 @@ def pytest_configure(config):
 
     if config.option.build_dir is not None:
         utils.BUILD_DIR = config.option.build_dir
+
+    if config.option.kernel_build == "force":
+        config.option.kernel = _build_kernel(config)
+    elif (
+        config.option.kernel_build in ("auto", "use")
+        and config.option.kernel is None
+        and not os.environ.get("FUNCTIONAL_TESTING_KERNEL", None)
+    ):
+        cache_path = config.cache.mkdir("kernel")
+        kernel = cache_path / "bzImage"
+
+        if kernel.is_file():
+            config.option.kernel = kernel
+        elif config.option.kernel_build == "auto":
+            config.option.kernel = _build_kernel(config)
+
+
+def _build_kernel(config):
+    from .lib import build_kernel
+
+    cache_path = config.cache.mkdir("kernel")
+    kernel = cache_path / "bzImage"
+
+    upstream = config.getoption("kernel_upstream") or config.getini("kernel_upstream")
+    branch = config.getoption("kernel_branch") or config.getini("kernel_branch")
+
+    capturemanager = config.pluginmanager.getplugin("capturemanager")
+    with capturemanager.global_and_fixture_disabled():
+        print(f"\n\n=== Building kernel in {cache_path} ===\n")
+        new_kernel = build_kernel.build_kernel(cache_path, upstream, branch)
+        print(f"\n\n=== Kernel build done ===\n")
+
+    os.rename(new_kernel, kernel)
+    return kernel
 
 
 COLLECT_ERRORS = []
