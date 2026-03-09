@@ -388,7 +388,7 @@ def host_setup(request):
 
     for plugins in request.param.get("setup", ()):
         for plugin in plugins:
-            plugin.presetup()
+            plugin.presetup(request.session.config)
 
     return request.param
 

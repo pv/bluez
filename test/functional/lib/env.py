@@ -59,11 +59,13 @@ class HostPlugin:
         """
         pass
 
-    def presetup(self):
+    def presetup(self, config):
         """
         Parent host-side setup, before VM environment is started.  May
         use pytest.skip() to skip tests in case plugin cannot be set up.
 
+        Args:
+            config (pytest.Config): pytest configuration object
         """
         pass
 
