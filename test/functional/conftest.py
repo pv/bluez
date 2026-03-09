@@ -70,7 +70,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--btmon",
         action="store_true",
-        help="Launch btmon on all hosts to log events, and dump traffic to test-functional-host.*.btsnoop",
+        help="Launch btmon on all hosts to log events, and dump traffic to test-functional-*.btsnoop",
     )
 
     # Kernel build
@@ -460,13 +460,11 @@ def _hosts_impl(request, vm, setup, name, reuse):
 def _close_hosts(request, vm, name):
     try:
         if request.session.config.option.btmon and name is not None:
-            for h in vm.hosts:
+            for j, h in enumerate(vm.hosts):
                 if not hasattr(h, "btmon"):
                     continue
 
-                host_name = h._name.replace("host", name)
-                filename = f"test-functional-{host_name}.btsnoop"
-
+                filename = f"test-functional-{name}.{j}.btsnoop"
                 with open(filename, "wb") as f:
                     f.write(h.btmon.stop())
 
