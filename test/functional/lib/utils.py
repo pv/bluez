@@ -20,6 +20,7 @@ import select
 import fnmatch
 import heapq
 import tempfile
+import queue
 from pathlib import Path
 
 __all__ = ["run", "find_exe", "get_bdaddr", "quoted", "LogStream"]
@@ -214,6 +215,8 @@ class LogStream:
     """
 
     TS_STRUCT = struct.Struct("@qq")
+    LOG_THREAD = None
+    LOG_QUEUE = queue.Queue()
 
     def __init__(self, name, pattern=None, tee=None):
         if pattern is not None:
@@ -228,14 +231,19 @@ class LogStream:
             flags=re.X,
         )
 
-        # Use DGRAM socketpair: this allows obtaining log timestamps,
-        # which is important as we may be lagging while reading.
-        self._in, self._out = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+        # Use SEQPACKET socketpair: this allows obtaining log
+        # timestamps, which is important as we want as close to ns
+        # precision as possible.  Read and log data in separate
+        # threads to decouple if output is slow/blocking.
+        self._in, self._out = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+
         self.stream = self._in.makefile("wb")
         self._tee = tee
         self._nsec = None
-        self._thread = threading.Thread(target=self._run)
-        self._thread.start()
+        self._start_log_thread()
+        self._read_thread = threading.Thread(target=self._run_read)
+        self._read_thread.start()
+        self._flush_event = threading.Event()
 
     def __enter__(self):
         return self
@@ -243,21 +251,27 @@ class LogStream:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def _run(self):
-        # Enable timestamping
-        cmsg_size = socket.CMSG_SPACE(self.TS_STRUCT.size)
-        SO_TIMESTAMPNS_NEW = 64
-        res = self._out.setsockopt(socket.SOL_SOCKET, SO_TIMESTAMPNS_NEW, 1)
-
-        # Read data
+    def _run_read(self):
         buf = b""
         anc = new_anc = None
+
         try:
+            # Enable timestamping
+            cmsg_size = socket.CMSG_SPACE(self.TS_STRUCT.size)
+            SO_TIMESTAMPNS_NEW = 64
+            res = self._out.setsockopt(socket.SOL_SOCKET, SO_TIMESTAMPNS_NEW, 1)
+
+            # Read data
             while True:
                 data, new_anc, _, _ = self._out.recvmsg(4096, cmsg_size)
                 while b"\n" not in data:
-                    buf += data
-                    data = self._out.recv(4096)
+                    block = self._out.recv(4096)
+                    if not block:
+                        break
+                    data += block
+
+                if not data:
+                    break
 
                 buf += data
 
@@ -266,21 +280,42 @@ class LogStream:
                     if anc is None:
                         anc = new_anc
                     j = buf.index(b"\n")
-                    self._do_log(buf[:j], anc)
+                    self.LOG_QUEUE.put((self, buf[: j + 1], anc))
                     buf = buf[j + 1 :]
                     anc = new_anc if buf else None
+        finally:
+            self._out.close()
 
-                if self._tee is not None:
-                    self._tee.write(data)
+            if buf:
+                self.LOG_QUEUE.put((self, buf, new_anc))
 
-                if not data:
-                    break
-        except OSError:
-            pass
+            self.LOG_QUEUE.put((self, None, None))
 
-        # Log last line
-        if buf:
-            self._do_log(buf, new_anc)
+    @classmethod
+    def _start_log_thread(cls):
+        if cls.LOG_THREAD is not None:
+            return
+
+        cls.LOG_THREAD = threading.Thread(target=cls._run_log, daemon=True)
+        cls.LOG_THREAD.start()
+
+    @classmethod
+    def _run_log(cls):
+        # Read data
+
+        while True:
+            logger, data, new_anc = cls.LOG_QUEUE.get()
+            if data is None:
+                logger._flush_event.set()
+                continue
+
+            if logger._tee:
+                logger._tee.write(data)
+
+            if data[-2:] == b"\n":
+                data = data[:-1]
+
+            logger._do_log(data, new_anc)
 
     def _get_time(self, line, anc):
         if anc:
@@ -330,16 +365,13 @@ class LogStream:
         log.handle(record)
 
     def close(self):
-        if self._thread is not None:
+        if self._read_thread is not None:
             self.stream.close()
             self._in.shutdown(socket.SHUT_RDWR)
             self._in.close()
-            while select.select([self._out], [], [], 0.01)[0]:
-                pass
-            self._out.shutdown(socket.SHUT_RDWR)
-            self._out.close()
-            self._thread.join()
-            self._thread = None
+            self._read_thread.join()
+            self._read_thread = None
+            self._flush_event.wait()
 
     def __del__(self):
         self.close()
