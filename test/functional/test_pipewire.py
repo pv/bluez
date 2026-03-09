@@ -46,7 +46,7 @@ class Pipewire(HostPlugin):
         self.uuids = tuple(uuids)
         self.roles = str(roles)
 
-    def presetup(self):
+    def presetup(self, config):
         try:
             self.exe_pw = find_exe("", "pipewire")
             self.exe_wp = find_exe("", "wireplumber")
@@ -95,7 +95,7 @@ class Pipewire(HostPlugin):
             """
             f.write(text)
 
-        log.info("Start pipewire")
+        log.info(f"Starting pipewire: {self.exe_pw}")
 
         self.logger = LogStream("pipewire")
         self.pw = subprocess.Popen(
@@ -104,6 +104,9 @@ class Pipewire(HostPlugin):
             stdout=self.logger.stream,
             stderr=subprocess.STDOUT,
         )
+
+        log.info(f"Starting pipewire: {self.exe_wp}")
+
         self.wp = subprocess.Popen(
             self.exe_wp,
             env=environ,
@@ -128,7 +131,11 @@ class Pipewire(HostPlugin):
 
         # Wait for wireplumber session services
         while True:
-            data = json.loads(self.pw_dump())
+            try:
+                data = json.loads(self.pw_dump())
+            except:
+                time.sleep(0.25)
+                continue
             for item in data:
                 if item.get("type", None) != "PipeWire:Interface:Client":
                     continue
@@ -187,8 +194,6 @@ def test_pipewire_a2dp(paired_hosts):
 
     # Connect
     host1.bluetoothctl.send(f"trust {host0.bdaddr}\n")
-
-    host0.bluetoothctl.send(f"scan off\n")
     host0.bluetoothctl.send(f"connect {host1.bdaddr}\n")
 
     # Wait for pipewire devices to appear
@@ -261,7 +266,10 @@ def check_pipewire_devices_exist(host, profile="a2dp-sink"):
 
     for j in range(20):
         text = host.pipewire.pw_dump()
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except:
+            continue
 
         seen = set()
         for item in data:
