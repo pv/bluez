@@ -3,6 +3,7 @@ import os
 import pytest
 import subprocess
 import threading
+import traceback
 
 from .. import rpc
 
@@ -25,10 +26,18 @@ def test_basic(tmp_path):
     socket_2 = tmp_path / "socket.2"
 
     def server_1():
-        rpc.server_unix_socket(socket_1, impl_1)
+        try:
+            rpc.server_unix_socket(socket_1, impl_1)
+        except:
+            traceback.print_exc()
+            raise
 
     def server_2():
-        rpc.server_unix_socket(socket_2, Impl2())
+        try:
+            rpc.server_unix_socket(socket_2, Impl2())
+        except:
+            traceback.print_exc()
+            raise
 
     s_1 = threading.Thread(target=server_1)
     s_2 = threading.Thread(target=server_2)

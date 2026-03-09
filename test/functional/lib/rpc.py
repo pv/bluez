@@ -52,24 +52,16 @@ def server_stream(stream, implementation):
     """
     conn = _Connection(stream, None)
 
-    # Stream buffer may contain data from old terminated connections,
-    # so we must skip to the current one. Make this sure via ACK with
-    # unique tag
-    key = time.monotonic_ns()
-
+    # Drop any old garbage in the stream input buffer, then indicate
+    # to client we are ready
     conn._flush()
-    conn._send("hello", key=key)
-
-    while True:
-        msg = conn._recv()
-        message = msg["message"]
-        if message == "hello:reply" and msg["key"] == key:
-            break
+    conn._send_reply("hello")
 
     while True:
         sys.stdout.flush()
         msg = conn._recv()
         message = msg["message"]
+        ident = msg.get("ident", None)
 
         if message in ("call", "call-noreply"):
             log.info(f"server: {msg['method']} {msg['a']} {msg['kw']}")
@@ -77,17 +69,18 @@ def server_stream(stream, implementation):
                 method = getattr(implementation, msg["method"])
                 result = method(*msg["a"], **msg["kw"])
                 if message == "call":
-                    conn._send("call:reply", result=result)
+                    conn._send("call:reply", result=result, ident=ident)
             except BaseException as exc:
                 if message == "call":
                     conn._send(
                         "call:reply",
                         error=exc,
                         traceback=traceback.format_exc(),
+                        ident=ident,
                     )
                 else:
                     log.error(traceback.format_exc())
-            log.debug("server: done")
+            log.debug(f"server: reply")
         elif message == "quit":
             method = getattr(implementation, "teardown", None)
             exc_info = {}
@@ -98,7 +91,7 @@ def server_stream(stream, implementation):
                     log.error(f"implementation quit() failed: {exc}")
                     exc_info = dict(error=exc, traceback=traceback.format_exc())
 
-            conn._send("quit:reply", **exc_info)
+            conn._send("quit:reply", ident=ident, **exc_info)
             log.info(f"server: quit")
             return
         else:
@@ -155,11 +148,12 @@ def client_unix_socket(socket_path, timeout=10, name=None):
 
     conn = _Connection(sock, timeout, name=name)
 
+    # Wait for and reply to the server ready message
     hello = conn._recv()
     if hello["message"] != "hello":
         raise RuntimeError("Bad hello message")
 
-    conn._send("hello:reply", key=hello["key"])
+    conn._send("hello:reply", ident=hello["ident"])
 
     return conn
 
@@ -272,16 +266,31 @@ class _Connection:
 
     def _send(self, message, timeout=None, **kw):
         data = pickle.dumps(
-            dict(message=message, **kw), protocol=pickle.HIGHEST_PROTOCOL
+            dict(message=message, **kw),
+            protocol=pickle.HIGHEST_PROTOCOL,
         )
         size = struct.pack("<Q", len(data))
         self._sendall(size + data, timeout=timeout)
+
+    def _send_reply(self, message, timeout=None, **kw):
+        """
+        Send-reply pair. If there are unprocessed messages in
+        input queue (e.g. failed send-reply pair), those are dropped.
+
+        """
+        ident = time.time_ns()
+
+        self._send(message, timeout=timeout, ident=ident, **kw)
+
+        while True:
+            reply = self._recv(timeout=timeout)
+            if reply["message"] == f"{message}:reply" and reply["ident"] == ident:
+                return reply
 
     def call_noreply(self, method, *a, **kw):
         timeout = kw.pop("timeout", None)
 
         self.log.info(f"client: {method} {a} {kw}")
-
         self._send("call-noreply", method=str(method), a=a, kw=kw, timeout=timeout)
 
     def call(self, method, *a, **kw):
@@ -289,11 +298,9 @@ class _Connection:
 
         self.log.info(f"client: {method} {a} {kw}")
 
-        self._send("call", method=str(method), a=a, kw=kw, timeout=timeout)
-        reply = self._recv(timeout=timeout)
-        if reply["message"] != "call:reply":
-            raise RuntimeError("Invalid reply")
-
+        reply = self._send_reply(
+            "call", method=str(method), a=a, kw=kw, timeout=timeout
+        )
         if reply.get("error"):
             raise RemoteError(reply["error"], reply["traceback"])
 
@@ -302,10 +309,7 @@ class _Connection:
 
     def close(self):
         try:
-            self._send("quit")
-            reply = self._recv()
-            if reply["message"] != "quit:reply":
-                raise RuntimeError("Invalid quit reply")
+            reply = self._send_reply("quit")
             if reply.get("error"):
                 raise RemoteError(reply["error"], reply["traceback"])
         except BrokenPipeError:
