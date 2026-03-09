@@ -36,6 +36,26 @@ class Bdaddr(env.HostPlugin):
         self.value = utils.get_bdaddr()
 
 
+class Rcvbuf(env.HostPlugin):
+    name = "rcvbuf"
+
+    def __init__(self, rcvbuf=None):
+        self.rcvbuf = rcvbuf
+
+    def presetup(self, config):
+        if self.rcvbuf is None:
+            self.rcvbuf = config.getini("host_plugins.rcvbuf.default")
+
+        self.rcvbuf = int(self.rcvbuf)
+
+    def setup(self, impl):
+        self.log = logging.getLogger(self.name)
+
+        self.log.info(f"Set SO_RCVBUF default = {self.rcvbuf}")
+        with open("/proc/sys/net/core/rmem_default", "wb") as f:
+            f.write(f"{self.rcvbuf}".encode("ascii"))
+
+
 class Call(env.HostPlugin):
     name = "call"
 
@@ -262,7 +282,7 @@ class Bluetoothctl(env.HostPlugin):
 
 
 HOST_SETUPS = 0
-DEFAULT_PLUGINS = [Bdaddr(), Call(), Chronyd()]
+DEFAULT_PLUGINS = [Rcvbuf(), Bdaddr(), Call(), Chronyd()]
 
 
 def _expand_plugins(plugins):

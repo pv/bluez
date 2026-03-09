@@ -104,6 +104,13 @@ def pytest_addoption(parser):
         "Kernel upstream Git branch /  commit to use for building custom kernel",
     )
 
+    # host_plugins.Rcvbuf:
+    parser.addini(
+        "host_plugins.rcvbuf.default",
+        "Set default SO_RCVBUF (/proc/sys/net/core/rmem_default) on hosts",
+        default="1048576",
+    )
+
 
 def pytest_configure(config):
     if config.option.list:
