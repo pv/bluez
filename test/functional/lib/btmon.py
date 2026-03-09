@@ -57,6 +57,12 @@ class Btmon(env.HostPlugin):
         """
         Stop btmon and return produced dump file data
         """
+        # Wait for flush
+        for j in range(3):
+            if self.log_stream._update_time + 2 < time.time():
+                break
+            time.sleep(0.5)
+
         if self.job.poll() is None:
             self.job.terminate()
             self.job.wait()
@@ -86,8 +92,11 @@ class BtmonLogStream(utils.LogStream):
         self._time_pat = re.compile(
             rb"\s(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)\.(\d+)(?:$|\x1b)"
         )
+        self._update_time = time.time()
 
     def _get_time(self, line, anc):
+        self._update_time = time.time()
+
         m = self._time_pat.search(line)
         if m:
             m = m.groups()
