@@ -35,7 +35,7 @@ The following additional options apply:
 	with suitable permissions are considered.
 
 :--btmon: Launch btmon on all hosts to log events, and dump traffic to
-	test-functional-host.\*.btsnoop
+	test-functional-\*.btsnoop
 
 :--force-usb: Force tests to use USB controllers instead of `btvirt`.
 
