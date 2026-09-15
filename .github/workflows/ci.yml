@@ -19,12 +19,12 @@ jobs:
         path: src/src
 
     - name: CI
-      uses: bluez/action-ci@main
+      uses: pv/bluez-action-ci@kvm
       with:
         task: ci
         base_folder: src
         space: user
-        github_token: ${{ secrets.ACTION_TOKEN }}
-        email_token: ${{ secrets.EMAIL_TOKEN }}
-        patchwork_token: ${{ secrets.PATCHWORK_TOKEN }}
-        patchwork_user: ${{ secrets.PATCHWORK_USER }}
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        email_token: "TEST_TOKEN"
+        patchwork_token: "TEST_TOKEN"
+        patchwork_user: "1234"
