@@ -15,6 +15,7 @@ are documented separately:
 - **functional-a2dp(7)**: `test/functional/test_a2dp.py`
 - **functional-avrcp(7)**: `test/functional/test_avrcp.py`
 - **functional-bap(7)**: `test/functional/test_bap.py`
+- **functional-mpris-proxy(7)**: `test/functional/test_mpris_proxy.py`
 - **functional-obex(7)**: `test/functional/test_obex.py`
 
 Each test case is described as:
@@ -82,9 +83,9 @@ test_agent_pair_bredr[accept]
 	   passkey.
 	4. ``org.bluez.Device1.Pair`` replies successfully.
 
-:Notes: This test is also used as the ``paired_hosts_bredr`` fixture
-	(see `test/functional/conftest.py`), which other tests reuse to
-	get two already paired hosts.
+:Notes: This test is also used by the ``paired_hosts`` fixture (see
+	`test/functional/conftest.py`), which other tests reuse to get two
+	already paired hosts.
 
 test_agent_pair_bredr[reject]
 -----------------------------
