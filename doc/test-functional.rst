@@ -477,14 +477,13 @@ pytest-xdist is required for parallel execution. To run:
 With ``-n auto`` the number of workers is limited by the memory
 available, rather than using one worker per CPU, as each worker runs
 VM instances and running out of memory makes the OOM killer terminate
-some of them, failing tests at random. Each worker is estimated to need
-memory for 3 VM instances (the maximum used by a test) of 256M of guest
-memory plus the overhead of qemu, see `test/functional/conftest.py`.
-The estimate is printed when starting:
+some of them, failing tests at random. The estimate is computed by
+pytest-bluezenv from the VM setups of the selected tests, and printed
+when starting:
 
 .. code-block::
 
-	Using 9 workers: 22 CPUs, 12159 MiB available, 1218 MiB per worker (3 VMs of 406 MiB)
+	pytest-bluezenv: using 9 workers: 22 CPUs, 12159 MiB available, 1218 MiB per worker
 
 To use a given number of workers instead:
 

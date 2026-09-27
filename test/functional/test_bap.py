@@ -5,7 +5,6 @@ Tests for BAP (LE Audio) using bluetoothctl in VM instances
 """
 
 import threading
-import time
 import warnings
 
 import dbus
@@ -14,13 +13,15 @@ import pytest
 from pytest_bluezenv import (
     Bluetoothd,
     Pexpect,
+    bluez_src_dir,
+    default_timeout,
     find_exe,
     get_dbus,
     host_config,
     mainloop_wrap,
     run,
+    wait_until,
 )
-from pytest_bluezenv.utils import DEFAULT_TIMEOUT, bluez_src_dir
 
 pytestmark = [pytest.mark.vm]
 
@@ -47,30 +48,6 @@ FAILURES = [
     r"(Failed to \w+[^\r\n]*)",
     r"(Device \S+ not available)",
 ]
-
-
-def expect_all(ctl, patterns, failures=FAILURES):
-    """
-    Expect all the given patterns, in any order, returning the groups
-    each of them matched.
-
-    Fail as soon as one of the failures shows up, e.g. a request that
-    was rejected, instead of waiting for the timeout.
-    """
-    pending = list(enumerate(patterns))
-    groups = [None] * len(patterns)
-
-    while pending:
-        idx, m = ctl.expect(list(failures) + [pattern for _, pattern in pending])
-
-        if idx < len(failures):
-            raise AssertionError(m[0].decode("utf-8") if m else "failed")
-
-        idx -= len(failures)
-        groups[pending[idx][0]] = m
-        pending.pop(idx)
-
-    return groups
 
 
 def script(name):
@@ -187,12 +164,7 @@ def pair_wait(ctl0, ctl1, pending):
     pending = list(pending)
 
     while pending:
-        idx, m = ctl0.expect(FAILURES + [legacy] + pending)
-
-        if idx < len(FAILURES):
-            raise AssertionError(m[0].decode("utf-8") if m else "failed")
-
-        idx -= len(FAILURES)
+        idx, m = ctl0.expect([legacy] + pending, reject=FAILURES)
 
         if idx == 0:
             warnings.warn(
@@ -271,14 +243,14 @@ def test_bap_unicast_transport_acquire(unicast_hosts):
     initiator.send(f"transport.acquire {left} {right}\n")
 
     acquired = r"Acquire successful: fd \d+ MTU \d+:\d+"
-    expect_all(
-        initiator,
+    initiator.expect_all(
         [
             acquired,
             acquired,
             f"Transport {left} State: active",
             f"Transport {right} State: active",
         ],
+        reject=FAILURES,
     )
 
 
@@ -300,7 +272,7 @@ def clear_remote_transports(remote):
         )
 
     clear()
-    assert done.wait(DEFAULT_TIMEOUT), "release did not complete"
+    assert done.wait(default_timeout()), "release did not complete"
     if errors:
         raise errors[0]
 
@@ -356,25 +328,23 @@ def wait_properties(host, paths, name):
     Polled rather than waited for on the output, as a device that is
     already in that state does not report it again.
     """
-    deadline = time.monotonic() + DEFAULT_TIMEOUT
 
-    while True:
+    def prop_set():
         props = host.call(device_properties, paths)
-        if all(props[path].get(name) for path in paths):
-            return
+        return all(props[path].get(name) for path in paths)
 
-        assert time.monotonic() < deadline, f"{name} not set on {paths}: {props}"
-        time.sleep(0.2)
+    wait_until(prop_set)
 
 
 def add_preset(ctl, name, props, metadata):
     """Make a custom preset from a transport's codec configuration and QoS."""
 
     def expect_reply(pattern):
-        failures = FAILURES + [r"(Invalid [^\r\n]*)", r"(No preset found)"]
-        idx, matches = ctl.expect(failures + [pattern], timeout=REPLY_TIMEOUT)
-        if idx < len(failures):
-            raise AssertionError(matches[0].decode("utf-8") if matches else "failed")
+        ctl.expect(
+            pattern,
+            reject=FAILURES + [r"(Invalid [^\r\n]*)", r"(No preset found)"],
+            timeout=REPLY_TIMEOUT,
+        )
 
     caps = " ".join(f"0x{byte:02x}" for byte in props["Configuration"])
     meta = " ".join(f"0x{byte:02x}" for byte in metadata) or "no"
@@ -426,7 +396,9 @@ def test_bap_unicast_reconfigure_metadata(unicast_hosts, metadata):
             f"endpoint.config {remote} /local/endpoint/ep0 {name}\n" for name in presets
         )
     )
-    expect_all(initiator, [r"Endpoint /local/endpoint/ep0 configured"] * 2)
+    initiator.expect_all(
+        [r"Endpoint /local/endpoint/ep0 configured"] * 2, reject=FAILURES
+    )
     current = host0.call(remote_transport_properties, remote)
     assert len(current) == len(original)
     assert sorted(bytes(p["Configuration"]) for p in current.values()) == sorted(
@@ -436,14 +408,14 @@ def test_bap_unicast_reconfigure_metadata(unicast_hosts, metadata):
     left, right = sorted(current)
     initiator.send(f"transport.acquire {left} {right}\n")
     acquired = r"Acquire successful: fd \d+ MTU \d+:\d+"
-    expect_all(
-        initiator,
+    initiator.expect_all(
         [
             acquired,
             acquired,
             f"Transport {left} State: active",
             f"Transport {right} State: active",
         ],
+        reject=FAILURES,
     )
 
 
@@ -505,13 +477,13 @@ def test_bap_broadcast_transport_acquire(hosts, source_script):
     sink.expect(r"Enter bcode\[value/no\]:")
     sink.send(f"{BCAST_CODE}\n")
 
-    expect_all(
-        sink,
+    sink.expect_all(
         [
             f"Transport {transport} State: broadcasting",
             r"Acquire successful: fd \d+ MTU \d+:\d+",
             f"Transport {transport} State: active",
         ],
+        reject=FAILURES,
     )
 
 
@@ -539,7 +511,7 @@ def start_earbuds_broadcast(hosts):
 
     # The BIG is only created once every BIS of it is ready, so the
     # script acquires both transports
-    expect_all(source, [ACQUIRED, ACQUIRED])
+    source.expect_all([ACQUIRED, ACQUIRED], reject=FAILURES)
 
     left = start_bluetoothctl(left_host, "broadcast-sink-left.bt")
     right = start_bluetoothctl(right_host, "broadcast-sink-right.bt")
@@ -595,13 +567,13 @@ def test_bap_broadcast_earbuds_transport_acquire(hosts):
         ctl.expect(r"Enter bcode\[value/no\]:")
         ctl.send(f"{BCAST_CODE}\n")
 
-        expect_all(
-            ctl,
+        ctl.expect_all(
             [
                 f"Transport {transport} State: broadcasting",
                 ACQUIRED,
                 f"Transport {transport} State: active",
             ],
+            reject=FAILURES,
         )
 
 
@@ -642,9 +614,9 @@ def test_bass_past_transport_acquire(hosts):
     # Source broadcasting, and its own stream exposed as a local
     # MediaAssistant object
     source = start_bluetoothctl(source_host, "broadcast-source.bt")
-    groups = expect_all(
-        source,
+    groups = source.expect_all(
         [LOCAL_ASSISTANT_RE, r"Acquire successful: fd \d+ MTU \d+:\d+"],
+        reject=FAILURES,
     )
     assistant_path = groups[0][0].decode("utf-8")
 
@@ -672,13 +644,13 @@ def test_bass_past_transport_acquire(hosts):
     _, m = delegator.expect(TRANSPORT_RE)
     transport = m[0].decode("utf-8")
 
-    expect_all(
-        delegator,
+    delegator.expect_all(
         [
             r"Acquire successful: fd \d+ MTU \d+:\d+",
             f"Transport {transport} State: broadcasting",
             f"Transport {transport} State: active",
         ],
+        reject=FAILURES,
     )
 
 
@@ -772,12 +744,12 @@ def set_hosts(hosts, secure_connections):
     # Connect only once every member has been found: the set is resolved
     # from the RSI of the members that are already known, so a member
     # found later would not be part of it
-    expect_all(
-        initiator,
+    initiator.expect_all(
         [
             f"Device {host1.bdaddr.upper()}",
             f"Device {host2.bdaddr.upper()}",
         ],
+        reject=FAILURES,
     )
 
     # Stop scanning before connecting, so the discovery does not
@@ -806,8 +778,7 @@ def set_hosts(hosts, secure_connections):
     # everything before it, so waiting for one event at a time drops
     # the ones that happen meanwhile, e.g. a transport created while
     # the pairing is still being waited for.
-    groups = expect_all(
-        initiator,
+    groups = initiator.expect_all(
         [
             "Pairing successful",
             f"DeviceSet /org/bluez/hci0/{SET_PATH}",
@@ -815,6 +786,7 @@ def set_hosts(hosts, secure_connections):
             TRANSPORT.format(dev_addr(host1)),
             TRANSPORT.format(dev_addr(host2)),
         ],
+        reject=FAILURES,
     )
 
     transports = [m[0].decode("utf-8") for m in groups[-2:]]
@@ -843,10 +815,10 @@ def test_bap_unicast_set_transport_acquire(set_hosts):
     initiator.send("transport.acquire {} {}\n".format(*transports))
 
     acquired = r"Acquire successful: fd \d+ MTU \d+:\d+"
-    expect_all(
-        initiator,
+    initiator.expect_all(
         [acquired, acquired]
         + [f"Transport {transport} State: active" for transport in transports],
+        reject=FAILURES,
     )
 
 
@@ -861,12 +833,12 @@ def discover_set(source_host, source, left_host, right_host):
     source.send("scan on\n")
     source.expect(f"Controller {source_host.bdaddr.upper()} Discovering: yes")
 
-    expect_all(
-        source,
+    source.expect_all(
         [
             f"Device {left_host.bdaddr.upper()}",
             f"Device {right_host.bdaddr.upper()}",
         ],
+        reject=FAILURES,
     )
 
     # Stop scanning before connecting, so the discovery does not
@@ -889,9 +861,9 @@ def test_bass_past_earbuds_transport_acquire(hosts):
     # Source broadcasting one BIS per channel, with its own streams
     # exposed as local MediaAssistant objects, one per BIS
     source = start_bluetoothctl(source_host, "broadcast-source-2bis.bt")
-    groups = expect_all(
-        source,
+    groups = source.expect_all(
         [LOCAL_ASSISTANT.format(1), LOCAL_ASSISTANT.format(2), ACQUIRED, ACQUIRED],
+        reject=FAILURES,
     )
     assistants = [m[0].decode("utf-8") for m in groups[:2]]
 
@@ -944,11 +916,11 @@ def test_bass_past_earbuds_transport_acquire(hosts):
     for ctl, host, bis in ((left, left_host, 1), (right, right_host, 2)):
         transport = expect_bis_transport(ctl, host, bis)
 
-        expect_all(
-            ctl,
+        ctl.expect_all(
             [
                 ACQUIRED,
                 f"Transport {transport} State: broadcasting",
                 f"Transport {transport} State: active",
             ],
+            reject=FAILURES,
         )

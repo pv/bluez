@@ -6,8 +6,7 @@ Tests for A2DP using bluetoothctl in VM instances
 
 import pytest
 
-from pytest_bluezenv import Bluetoothd, Pexpect, find_exe, host_config
-from pytest_bluezenv.utils import bluez_src_dir
+from pytest_bluezenv import Bluetoothd, Pexpect, bluez_src_dir, find_exe, host_config
 
 pytestmark = [pytest.mark.vm]
 

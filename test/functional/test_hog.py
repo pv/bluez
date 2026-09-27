@@ -12,8 +12,7 @@ import warnings
 
 import pytest
 
-from pytest_bluezenv import Bluetoothd, Pexpect, find_exe, host_config
-from pytest_bluezenv.utils import bluez_src_dir
+from pytest_bluezenv import Bluetoothd, Pexpect, bluez_src_dir, find_exe, host_config
 
 pytestmark = [pytest.mark.vm]
 
@@ -89,38 +88,14 @@ def spawn_bluetoothctl(host, init_script=None):
     return host.pexpect.spawn(args)
 
 
-def expect(ctl, patterns, **kwargs):
-    """
-    Expect one of the patterns, failing as soon as one of the failures
-    shows up. Return the index of the pattern matched and its groups.
-    """
-    if isinstance(patterns, str):
-        patterns = [patterns]
-
-    idx, m = ctl.expect(FAILURES + list(patterns), **kwargs)
-    if idx < len(FAILURES):
-        raise AssertionError(m[0].decode("utf-8") if m else "failed")
-
-    return idx - len(FAILURES), m
-
-
-def expect_all(ctl, patterns, **kwargs):
-    """Expect all the given patterns, in any order."""
-    pending = list(patterns)
-
-    while pending:
-        idx, _ = expect(ctl, pending, **kwargs)
-        pending.pop(idx)
-
-
 def pair_le(host0, ctl0, host1, ctl1):
     ctl0.send("scan on\n")
-    expect(ctl0, f"Controller {host0.bdaddr.upper()} Discovering: yes")
+    ctl0.expect(f"Controller {host0.bdaddr.upper()} Discovering: yes", reject=FAILURES)
 
     ctl1.send("advertise on\n")
-    expect(ctl1, "Advertising object registered")
+    ctl1.expect("Advertising object registered", reject=FAILURES)
 
-    expect(ctl0, f"Device {host1.bdaddr.upper()}")
+    ctl0.expect(f"Device {host1.bdaddr.upper()}", reject=FAILURES)
     ctl0.send(f"pair {host1.bdaddr.upper()}\n")
 
     # See test_bluetoothctl_pair_le: passkey confirmation is handled by
@@ -132,7 +107,7 @@ def pair_le(host0, ctl0, host1, ctl1):
     ]
 
     while pending:
-        idx, m = expect(ctl0, [legacy] + pending)
+        idx, m = ctl0.expect([legacy] + pending, reject=FAILURES)
         if idx == 0:
             warnings.warn(
                 "BUG: we got passkey authentication, bluetoothd/kernel "
@@ -150,7 +125,7 @@ def read_attribute(ctl, uuid):
     """Read the given remote attribute, returning its value as hex string."""
     ctl.send(f"gatt.select-attribute {uuid}\n")
     ctl.send("gatt.read\n")
-    expect(ctl, r"Attempting to read \S+", timeout=REPLY_TIMEOUT)
+    ctl.expect(r"Attempting to read \S+", reject=FAILURES, timeout=REPLY_TIMEOUT)
     return expect_hexdump(ctl)
 
 
@@ -161,13 +136,13 @@ def hexbytes(value):
 
 def expect_hexdump(ctl, **kwargs):
     """Expect a value printed by bluetoothctl, returning it as hex string."""
-    _, m = expect(ctl, r"((?: [0-9a-f]{2})+)  ", **kwargs)
+    _, m = ctl.expect(r"((?: [0-9a-f]{2})+)  ", reject=FAILURES, **kwargs)
     return m[0].decode("utf-8").strip()
 
 
 def expect_notification(ctl):
     """Expect a notification of the remote attribute, returning its value."""
-    expect(ctl, rf"CHG.*? Attribute /\S+ Value:")
+    ctl.expect(rf"CHG.*? Attribute /\S+ Value:", reject=FAILURES)
     return expect_hexdump(ctl)
 
 
@@ -175,12 +150,12 @@ def enable_notifications(ctl, device, uuid, local):
     """Enable notifications of the given attribute, on the HID host."""
     ctl.send(f"gatt.select-attribute {uuid}\n")
     ctl.send("gatt.notify on\n")
-    expect(ctl, r"Notify started", timeout=REPLY_TIMEOUT)
+    ctl.expect(r"Notify started", reject=FAILURES, timeout=REPLY_TIMEOUT)
     # Either subscribed with StartNotify, or with AcquireNotify as done by
     # the input plugin of the HID host for the Input Reports
-    expect(
-        device,
+    device.expect(
         rf"Attribute {local} (\S+ )?(notifications enabled|Notify sock acquired)",
+        reject=FAILURES,
     )
 
 
@@ -188,7 +163,9 @@ def notify(device, local, value):
     """Notify the given value of a local attribute, on the HID device."""
     device.send(f"gatt.select-attribute local {local}\n")
     device.send(f'gatt.write "{hexbytes(value)}"\n')
-    expect(device, rf"Attribute {local} .*written", timeout=REPLY_TIMEOUT)
+    device.expect(
+        rf"Attribute {local} .*written", reject=FAILURES, timeout=REPLY_TIMEOUT
+    )
 
 
 @host_config(
@@ -207,13 +184,17 @@ def test_hog(hosts, init_script, flags, sci):
     host0, host1 = hosts
 
     device = spawn_bluetoothctl(host1, init_script)
-    expect(device, "Application registered")
+    device.expect("Application registered", reject=FAILURES)
 
     ctl = spawn_bluetoothctl(host0)
     pair_le(host0, ctl, host1, device)
 
     ctl.send(f"info {host1.bdaddr.upper()}\n")
-    expect(ctl, rf"Human Interface Device\s+\({HIDS_UUID}\)", timeout=REPLY_TIMEOUT)
+    ctl.expect(
+        rf"Human Interface Device\s+\({HIDS_UUID}\)",
+        reject=FAILURES,
+        timeout=REPLY_TIMEOUT,
+    )
 
     # HID Information: bcdHID 1.11, bCountryCode 0x00 and Flags
     assert read_attribute(ctl, "2a4a") == f"11 01 00 {flags}"
@@ -237,7 +218,7 @@ def test_hog(hosts, init_script, flags, sci):
     # to be printed
     ctl.send("gatt.select-attribute 2c39\n")
     ctl.send("gatt.notify on\n")
-    expect(ctl, r"Notify started", timeout=REPLY_TIMEOUT)
+    ctl.expect(r"Notify started", reject=FAILURES, timeout=REPLY_TIMEOUT)
 
     # SCI mode change, see HOGP.TS 4.6.1: the HID host writes the mode to
     # enable to the HID Control Point, with Write Without Response
@@ -245,9 +226,9 @@ def test_hog(hosts, init_script, flags, sci):
     ctl.send(f'gatt.write "{hexbytes(SCI_FAST_MODE)}"\n')
     # Received with WriteValue, or over the socket acquired with
     # AcquireWrite
-    expect(
-        device,
+    device.expect(
         rf"\[{LOCAL_CP} .*\] WriteValue:|Attribute {LOCAL_CP} .*written:",
+        reject=FAILURES,
     )
     assert expect_hexdump(device) == SCI_FAST_MODE
 
@@ -257,11 +238,11 @@ def test_hog(hosts, init_script, flags, sci):
     # The connection rate may change before the command completes, so the
     # event may be printed before the reply
     rate = rf"{{}} type .* connection subrate interval {SCI_RATE[0]}"
-    expect_all(
-        ctl,
+    ctl.expect_all(
         [r"Connection Subrate loaded successfully", rate.format(host1.bdaddr.upper())],
+        reject=FAILURES,
     )
-    expect(device, rate.format(host0.bdaddr.upper()))
+    device.expect(rate.format(host0.bdaddr.upper()), reject=FAILURES)
 
     # Then the HID device confirms the mode has been changed
     ctl.send("gatt.select-attribute 2c39\n")

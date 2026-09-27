@@ -5,7 +5,6 @@ End-to-end tests for mpris-proxy.
 """
 
 import logging
-import subprocess
 
 import dbus
 import dbus.exceptions
@@ -18,20 +17,16 @@ from pytest_bluezenv import (
     DbusSession,
     EventPluginMixin,
     HostPlugin,
-    LogStream,
+    LeAdvertiser,
+    Pexpect,
     dbus_service_event_method,
     find_exe,
     get_dbus,
     mainloop_assert,
     mainloop_wrap,
     parametrized_host_config,
-    quoted,
     wait_until,
 )
-
-from .le_utils import LeAdvertiser
-
-BLUEZ_BUS_NAME = "org.bluez"
 
 MPRIS_BUS_NAME = "org.mpris.MediaPlayer2.blueztest"
 MPRIS_PATH = "/org/mpris/MediaPlayer2"
@@ -40,7 +35,6 @@ MPRIS_PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
 
 MPRIS_BUS_PREFIX = "org.mpris.MediaPlayer2."
 
-BLUEZ_DEVICE_INTERFACE = "org.bluez.Device1"
 PROPS_INTERFACE = "org.freedesktop.DBus.Properties"
 
 AVRCP_CONTROLLER_UUID = "0000110c-0000-1000-8000-00805f9b34fb"
@@ -233,6 +227,7 @@ class MprisProxy(HostPlugin):
     depends = [Bluetoothd(), DbusSession()]
 
     def __init__(self, args=()):
+        super().__init__()
         self.extra_args = list(args)
 
     def presetup(self, config):
@@ -241,24 +236,18 @@ class MprisProxy(HostPlugin):
         except FileNotFoundError as exc:
             pytest.skip(reason=f"mpris-proxy: {exc!r}")
 
-    @mainloop_wrap
     def setup(self, impl):
         self.log = logging.getLogger(self.name)
-        self.log_stream = LogStream(self.name)
 
-        cmd = [self.exe, "--index", "0"] + self.extra_args
-        self.log.info("Start mpris-proxy: {}".format(quoted(cmd)))
+        self._pexpect = Pexpect()
+        self._pexpect.name = self.name
+        self._pexpect.setup(impl)
 
-        self.job = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=self.log_stream.stream,
-            stderr=subprocess.STDOUT,
-        )
+        self._ctl_id = self._pexpect.spawn([self.exe, "--index", "0"] + self.extra_args)
 
     def teardown(self):
         self.log.info("Stop mpris-proxy")
-        self.job.terminate()
+        self._pexpect.close(self._ctl_id)
 
 
 class MprisClient(HostPlugin):
@@ -321,15 +310,6 @@ class MprisClient(HostPlugin):
         getattr(player, method)()
 
 
-@mainloop_wrap
-def vm_set_trusted(bdaddr):
-    """Mark the device with the given address as trusted."""
-    path = "/org/bluez/hci0/dev_" + bdaddr.upper().replace(":", "_")
-    bus = get_dbus()
-    props = dbus.Interface(bus.get_object(BLUEZ_BUS_NAME, path), PROPS_INTERFACE)
-    props.Set(BLUEZ_DEVICE_INTERFACE, "Trusted", dbus.Boolean(True))
-
-
 def idle_status(le):
     """Playback status a stopped player reads as, MCP has no stopped state."""
     return "Paused" if le else "Stopped"
@@ -349,8 +329,8 @@ def mpris_player(paired_hosts, is_le):
     """
     client, server = paired_hosts
 
-    client.call(vm_set_trusted, server.bdaddr)
-    server.call(vm_set_trusted, client.bdaddr)
+    client.agent.device_set(server.bdaddr, "Trusted", True)
+    server.agent.device_set(client.bdaddr, "Trusted", True)
 
     if is_le:
         method, args = "Connect", ()

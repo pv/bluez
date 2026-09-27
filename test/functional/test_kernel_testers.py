@@ -12,8 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from pytest_bluezenv import find_exe, host_config, run
-from pytest_bluezenv.utils import DEFAULT_TIMEOUT
+from pytest_bluezenv import default_timeout, find_exe, host_config, run
 
 # Testers that can reuse the VM instance
 TESTERS = [
@@ -64,7 +63,7 @@ def run_tester(hosts, tester):
         run,
         [tester],
         stdout=subprocess.PIPE,
-        timeout=2 * DEFAULT_TIMEOUT + 60,
+        timeout=2 * default_timeout() + 60,
         encoding="utf-8",
         errors="surrogateescape",
     )
@@ -103,7 +102,7 @@ def test_kernel_selftest(hosts):
         run,
         [tester],
         stdout=subprocess.PIPE,
-        timeout=2 * DEFAULT_TIMEOUT + 60,
+        timeout=2 * default_timeout() + 60,
         encoding="utf-8",
         errors="surrogateescape",
     )

@@ -1,4 +1,4 @@
 pytest>=8
 pytest-xdist
-pytest-bluezenv==0.1.9
+pytest-bluezenv==0.1.10
 black
